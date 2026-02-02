@@ -45,9 +45,21 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Install CocoaPods
+      - name: Ensure CocoaPods is available
         run: |
-          sudo gem install cocoapods
+          set -e
+          if command -v pod >/dev/null 2>&1; then
+            echo "CocoaPods already installed: $(pod --version)"
+          else
+            echo "CocoaPods not found. Installing..."
+            sudo gem install cocoapods
+            pod --version
+          fi
+
+      - name: Install iOS Pods
+        run: |
+          set -e
+          test -f ios/Podfile || (echo "❌ ios/Podfile not found" && exit 1)
           cd ios
           pod install --repo-update
 
@@ -84,7 +96,6 @@ jobs:
             ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
 
           echo "Provisioning profile installed: $UUID.mobileprovision"
-          # Optional: print profile name for debugging
           security cms -D -i ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision > profile.plist
           /usr/libexec/PlistBuddy -c "Print :Name" profile.plist || true
 
@@ -102,7 +113,6 @@ jobs:
             done
           fi
 
-          # For TestFlight/App Store distribution, use export method 'app-store'
           flutter build ipa --release --export-method app-store $EXTRA
 
       - name: Upload IPA artifact (backup)
@@ -116,7 +126,6 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
-          bundler-cache: false
 
       - name: Install fastlane
         run: gem install fastlane
@@ -147,8 +156,6 @@ jobs:
           IPA_PATH="$(ls -t build/ios/ipa/*.ipa | head -n 1)"
           echo "Uploading: $IPA_PATH"
 
-          # pilot is the recommended tool to upload/distribute TestFlight builds via fastlane
-          # Using API key authentication avoids Apple ID / 2FA in CI
           if [ -n "$CHANGELOG" ]; then
             fastlane pilot upload --api_key_path fastlane/api_key.json --ipa "$IPA_PATH" --changelog "$CHANGELOG"
           else
