@@ -1,0 +1,138 @@
+name: Adhoc - iOS Flutter IPA (master)
+
+on:
+  workflow_dispatch:
+    inputs:
+      dart_define:
+        description: "Optional --dart-define key=value (comma-separated). Example: ENV=dev,FOO=bar"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: adhoc-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios:
+    name: iOS (Ad Hoc IPA)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Set up Flutter 3.38.9 (bundles Dart 3.10.8)
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.9"
+          channel: stable
+          cache: true
+
+      - name: Verify Flutter & Dart versions
+        run: |
+          flutter --version
+          dart --version
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Install CocoaPods
+        run: |
+          sudo gem install cocoapods
+          cd ios
+          pod install --repo-update
+
+      # Secrets used:
+      # IOS_CERT_BASE64 (base64 of Apple Distribution .p12)
+      # IOS_CERT_PASSWORD (password for .p12)
+      # IOS_PROFILE_BASE64 (base64 of Ad Hoc .mobileprovision)
+      # KEYCHAIN_PASSWORD (password for temporary CI keychain)
+      - name: Create keychain & import signing certificate
+        env:
+          CERT_BASE64: ${{ secrets.IOS_CERT_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -e
+
+          if [ -z "$CERT_BASE64" ]; then
+            echo "ERROR: Missing secret IOS_CERT_BASE64 (base64 encoded .p12)."
+            exit 1
+          fi
+          if [ -z "$CERT_PASSWORD" ]; then
+            echo "ERROR: Missing secret IOS_CERT_PASSWORD."
+            exit 1
+          fi
+          if [ -z "$KEYCHAIN_PASSWORD" ]; then
+            echo "ERROR: Missing secret KEYCHAIN_PASSWORD."
+            exit 1
+          fi
+
+          echo "$CERT_BASE64" | base64 --decode > ios_dist.p12
+
+          # Create and unlock a dedicated keychain for CI
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+
+          # Import signing certificate
+          security import ios_dist.p12 \
+            -k build.keychain \
+            -P "$CERT_PASSWORD" \
+            -T /usr/bin/codesign
+
+          # Make keychain active for signing
+          security list-keychain -d user -s build.keychain
+          security default-keychain -s build.keychain
+
+          # Allow codesign/Xcode tools to access the private key
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+      - name: Install provisioning profile (Ad Hoc)
+        env:
+          PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE64 }}
+        run: |
+          set -e
+
+          if [ -z "$PROFILE_BASE64" ]; then
+            echo "ERROR: Missing secret IOS_PROFILE_BASE64 (base64 encoded .mobileprovision)."
+            exit 1
+          fi
+
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          UUID=$(uuidgen)
+          echo "$PROFILE_BASE64" | base64 --decode > \
+            ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
+
+          echo "Provisioning profile installed: $UUID.mobileprovision"
+
+      - name: Build iOS IPA (Ad Hoc) - main.dart
+        env:
+          DART_DEFINE: ${{ inputs.dart_define }}
+        run: |
+          set -e
+
+          EXTRA=""
+
+          # Convert comma-separated dart_defines to repeated --dart-define
+          if [ -n "$DART_DEFINE" ]; then
+            IFS=',' read -ra KV <<< "$DART_DEFINE"
+            for item in "${KV[@]}"; do
+              EXTRA="$EXTRA --dart-define=$item"
+            done
+          fi
+
+          # main.dart is used by default (no --target needed)
+          flutter build ipa --release --export-method ad-hoc $EXTRA
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-adhoc-ipa-${{ github.run_number }}
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: error
