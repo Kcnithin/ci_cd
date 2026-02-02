@@ -1,0 +1,156 @@
+name: iOS - Build & Upload to TestFlight (master)
+
+on:
+  workflow_dispatch:
+    inputs:
+      changelog:
+        description: "Optional changelog shown in TestFlight"
+        required: false
+        default: ""
+      dart_define:
+        description: "Optional --dart-define key=value (comma-separated). Example: ENV=prod,FOO=bar"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-upload:
+    runs-on: macos-latest
+    name: Build IPA & Upload to TestFlight
+
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Set up Flutter 3.38.9 (bundles Dart 3.10.8)
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.9"
+          channel: stable
+          cache: true
+
+      - name: Verify Flutter & Dart versions
+        run: |
+          flutter --version
+          dart --version
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Install CocoaPods
+        run: |
+          sudo gem install cocoapods
+          cd ios
+          pod install --repo-update
+
+      - name: Create keychain & import signing certificate
+        env:
+          CERT_BASE64: ${{ secrets.IOS_CERT_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -e
+          echo "$CERT_BASE64" | base64 --decode > ios_dist.p12
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+
+          security import ios_dist.p12 \
+            -k build.keychain \
+            -P "$CERT_PASSWORD" \
+            -T /usr/bin/codesign
+
+          security list-keychain -d user -s build.keychain
+          security default-keychain -s build.keychain
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+      - name: Install provisioning profile (App Store)
+        env:
+          PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE64 }}
+        run: |
+          set -e
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          UUID=$(uuidgen)
+          echo "$PROFILE_BASE64" | base64 --decode > \
+            ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
+
+          echo "Provisioning profile installed: $UUID.mobileprovision"
+          # Optional: print profile name for debugging
+          security cms -D -i ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision > profile.plist
+          /usr/libexec/PlistBuddy -c "Print :Name" profile.plist || true
+
+      - name: Build iOS IPA for TestFlight (App Store export)
+        env:
+          DART_DEFINE: ${{ inputs.dart_define }}
+        run: |
+          set -e
+
+          EXTRA=""
+          if [ -n "$DART_DEFINE" ]; then
+            IFS=',' read -ra KV <<< "$DART_DEFINE"
+            for item in "${KV[@]}"; do
+              EXTRA="$EXTRA --dart-define=$item"
+            done
+          fi
+
+          # For TestFlight/App Store distribution, use export method 'app-store'
+          flutter build ipa --release --export-method app-store $EXTRA
+
+      - name: Upload IPA artifact (backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-${{ github.run_number }}
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: error
+
+      - name: Set up Ruby (for fastlane)
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: false
+
+      - name: Install fastlane
+        run: gem install fastlane
+
+      - name: Create App Store Connect API key file (for fastlane)
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          set -e
+          mkdir -p fastlane/private_keys
+          echo "$ASC_KEY_P8_BASE64" | base64 --decode > fastlane/private_keys/AuthKey_${ASC_KEY_ID}.p8
+
+          cat > fastlane/api_key.json <<EOF
+          {
+            "key_id": "${ASC_KEY_ID}",
+            "issuer_id": "${ASC_ISSUER_ID}",
+            "key_filepath": "fastlane/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          }
+          EOF
+
+      - name: Upload to TestFlight (fastlane pilot)
+        env:
+          CHANGELOG: ${{ inputs.changelog }}
+        run: |
+          set -e
+          IPA_PATH="$(ls -t build/ios/ipa/*.ipa | head -n 1)"
+          echo "Uploading: $IPA_PATH"
+
+          # pilot is the recommended tool to upload/distribute TestFlight builds via fastlane
+          # Using API key authentication avoids Apple ID / 2FA in CI
+          if [ -n "$CHANGELOG" ]; then
+            fastlane pilot upload --api_key_path fastlane/api_key.json --ipa "$IPA_PATH" --changelog "$CHANGELOG"
+          else
+            fastlane pilot upload --api_key_path fastlane/api_key.json --ipa "$IPA_PATH"
+          fi
