@@ -117,11 +117,24 @@ jobs:
           ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
         run: |
           gem install fastlane
+
+          # 1. Decode the P8 key to a file
           echo "$ASC_KEY_CONTENT" | base64 --decode > AuthKey.p8
+
+          # 2. Create the API Key JSON file expected by Fastlane
+          cat > api_key.json <<EOF
+          {
+            "key_id": "$ASC_KEY_ID",
+            "issuer_id": "$ASC_ISSUER_ID",
+            "key_filepath": "$(pwd)/AuthKey.p8",
+            "in_house": false
+          }
+          EOF
+
+          # 3. Run Pilot using ONLY the JSON path
           fastlane pilot upload \
-            --ipa build/ios/ipa/*.ipa \
+            --ipa "build/ios/ipa/Runner.ipa" \
             --skip_waiting_for_build_processing true \
             --changelog "${{ inputs.changelog }}" \
-            --api_key_path AuthKey.p8 \
-            --api_key_id "$ASC_KEY_ID" \
-            --api_key_issuer_id "$ASC_ISSUER_ID"
+            --api_key_path api_key.json
+      
