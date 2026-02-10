@@ -218,7 +218,8 @@ jobs:
           cat > build_api_json.py <<'PY' 
           import os, json 
           with open("private_key.p8", "r") as f:
-          p8 = f.read() 
+              key_content = f.read()
+  
           data ={
             "key_id": "${ASC_KEY_ID}",
             "issuer_id": "${ASC_ISSUER_ID}",
