@@ -113,7 +113,7 @@ jobs:
       - name: Create ExportOptions.plist (manual signing for App Store)
         env:
           TEAM_ID: "RMG82888A2"                       # Your Apple Team ID (from the Xcode log)
-          BUNDLE_ID: "com.amagi.sampleCiCd"           # Your iOS bundle identifier
+          BUNDLE_ID: "com.amagi.customerdev"           # Your iOS bundle identifier
           PROFILE_NAME: "amagiCustomerDevAppStoreProfile"  # Or replace with the installed profile UUID
         run: |
           set -e
