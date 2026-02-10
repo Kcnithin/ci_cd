@@ -97,7 +97,7 @@ jobs:
             IFS=',' read -ra ADDR <<< "${{ inputs.dart_define }}"
             for i in "${ADDR[@]}"; do DART_ARGS="$DART_ARGS --dart-define=$i"; done
           fi
-          # Automatically uses the GitHub Action run number as the build number
+          # Automatically increments build number for TestFlight uniqueness
           flutter build ios --release --no-codesign --build-number=${{ github.run_number }} $DART_ARGS
 
       - name: Archive & Export IPA
@@ -112,9 +112,11 @@ jobs:
 
       - name: Upload to TestFlight
         env:
-          SPACESHIP_CONNECT_API_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          SPACESHIP_CONNECT_API_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          SPACESHIP_CONNECT_API_KEY_CONTENT: ${{ secrets.ASC_KEY_P8_BASE64 }}
+          # REQUIRED: Exact variable names for Fastlane API authentication
+          APP_STORE_CONNECT_API_KEY_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_KEY: ${{ secrets.ASC_KEY_CONTENT }}
+          APP_STORE_CONNECT_API_KEY_IS_KEY_CONTENT_BASE64: true
         run: |
           gem install fastlane
           fastlane pilot upload \
