@@ -97,45 +97,60 @@ jobs:
             IFS=',' read -ra ADDR <<< "${{ inputs.dart_define }}"
             for i in "${ADDR[@]}"; do DART_ARGS="$DART_ARGS --dart-define=$i"; done
           fi
-          # Automatically increments build number for TestFlight uniqueness
-          flutter build ios --release --no-codesign --build-number=${{ github.run_number }} $DART_ARGS
+
+          flutter build ios --release \
+            --no-codesign \
+            --build-number=${{ github.run_number }} \
+            $DART_ARGS
 
       - name: Archive & Export IPA
         run: |
-          xcodebuild -workspace ios/Runner.xcworkspace -scheme "${SCHEME}" -configuration Release -archivePath build/ios/Runner.xcarchive archive CODE_SIGNING_ALLOWED=NO
-          xcodebuild -exportArchive -archivePath build/ios/Runner.xcarchive -exportPath build/ios/ipa -exportOptionsPlist ios/ExportOptions.plist CODE_SIGNING_ALLOWED=YES
+          xcodebuild -workspace ios/Runner.xcworkspace \
+            -scheme "${SCHEME}" \
+            -configuration Release \
+            -archivePath build/ios/Runner.xcarchive \
+            archive CODE_SIGNING_ALLOWED=NO
+
+          xcodebuild -exportArchive \
+            -archivePath build/ios/Runner.xcarchive \
+            -exportPath build/ios/ipa \
+            -exportOptionsPlist ios/ExportOptions.plist \
+            CODE_SIGNING_ALLOWED=YES
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
-          bundler-cache: false
 
-      - name: Upload to TestFlight
+      - name: Upload to TestFlight (CORRECT WAY ✅)
         env:
-          # App Store Connect API Key (must be Admin access)
+          # App Store Connect API Key (Admin or App Manager access)
           APP_STORE_CONNECT_API_KEY_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_KEY: ${{ secrets.ASC_KEY_CONTENT }}
           APP_STORE_CONNECT_API_KEY_IS_KEY_CONTENT_BASE64: true
 
-          # CRITICAL — force API key mode (prevents Apple ID login)
+          # Force API-key only mode (prevents Apple ID login)
           FASTLANE_USER: ""
-          FASTLANE_PASSWORD: ""        # prevents credential manager from prompting
-          FASTLANE_SESSION: ""         # disables cookie-based login
+          FASTLANE_PASSWORD: ""
+          FASTLANE_SESSION: ""
           FASTLANE_SKIP_CONFIRMATIONS: "true"
           FASTLANE_SKIP_UPDATE_CHECK: "true"
           SPACESHIP_USE_API_KEY: "true"
+
         run: |
           gem install fastlane
 
+          # Explicitly initialize API key
           fastlane run app_store_connect_api_key \
-            key_id:"${APP_STORE_CONNECT_API_KEY_KEY_ID}" \
-            issuer_id:"${APP_STORE_CONNECT_API_KEY_ISSUER_ID}" \
-            key_content:"${APP_STORE_CONNECT_API_KEY_KEY}"
+            key_id:"$APP_STORE_CONNECT_API_KEY_KEY_ID" \
+            issuer_id:"$APP_STORE_CONNECT_API_KEY_ISSUER_ID" \
+            key_content:"$APP_STORE_CONNECT_API_KEY_KEY"
 
-          fastlane deliver \
+          # Upload using PILOT (works reliably in CI)
+          fastlane pilot upload \
             --ipa build/ios/ipa/*.ipa \
-            --skip_screenshots \
-            --skip_metadata \
-            --skip_binary_upload false
+            --skip_waiting_for_build_processing true \
+            --changelog "${{ inputs.changelog }}" \
+            --api_key_key_id "$APP_STORE_CONNECT_API_KEY_KEY_ID" \
+            --api_key_issuer_id "$APP_STORE_CONNECT_API_KEY_ISSUER_ID"
