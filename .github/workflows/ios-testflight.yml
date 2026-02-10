@@ -133,7 +133,7 @@ jobs:
 
           # 3. Run Pilot using ONLY the JSON path
           fastlane pilot upload \
-            --ipa "build/ios/ipa/Runner.ipa" \
+            --ipa build/ios/ipa/*.ipa \
             --skip_waiting_for_build_processing true \
             --changelog "${{ inputs.changelog }}" \
             --api_key_path api_key.json
