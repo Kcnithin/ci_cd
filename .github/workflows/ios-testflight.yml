@@ -124,31 +124,19 @@ jobs:
 
       - name: Upload to TestFlight
         env:
-          # App Store Connect API Key (Admin or App Manager access)
           APP_STORE_CONNECT_API_KEY_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_KEY: ${{ secrets.ASC_KEY_CONTENT }}
-          APP_STORE_CONNECT_API_KEY_IS_KEY_CONTENT_BASE64: true
-
-          # Force API-key only mode (prevents Apple ID login)
-          FASTLANE_USER: ""
-          FASTLANE_PASSWORD: ""
-          FASTLANE_SESSION: ""
-          FASTLANE_SKIP_CONFIRMATIONS: "true"
-          FASTLANE_SKIP_UPDATE_CHECK: "true"
-          SPACESHIP_USE_API_KEY: "true"
 
         run: |
           gem install fastlane
+          
+          echo "$APP_STORE_CONNECT_API_KEY_KEY" | base64 --decode > AuthKey.p8
 
-          # Explicitly initialize API key
-          fastlane run app_store_connect_api_key \
-            key_id:"$APP_STORE_CONNECT_API_KEY_KEY_ID" \
-            issuer_id:"$APP_STORE_CONNECT_API_KEY_ISSUER_ID" \
-            key_content:"$APP_STORE_CONNECT_API_KEY_KEY"
-
-          # Upload using PILOT (works reliably in CI)
           fastlane pilot upload \
             --ipa build/ios/ipa/*.ipa \
+            --api_key_path AuthKey.p8 \
+            --api_key_key_id "$APP_STORE_CONNECT_API_KEY_KEY_ID" \
+            --api_key_issuer_id "$APP_STORE_CONNECT_API_KEY_ISSUER_ID" \
             --skip_waiting_for_build_processing true \
             --changelog "${{ inputs.changelog }}"
