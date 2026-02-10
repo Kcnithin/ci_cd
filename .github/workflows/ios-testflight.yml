@@ -45,6 +45,15 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
+      # Optional safety: generate ios/ if the repo doesn't have it committed
+      - name: Ensure iOS folder exists (generate if missing)
+        run: |
+          set -e
+          if [ ! -f ios/Podfile ]; then
+            echo "ios/Podfile missing — running 'flutter create .' to generate iOS platform files"
+            flutter create .
+          fi
+
       - name: Ensure CocoaPods is available
         run: |
           set -e
@@ -93,13 +102,49 @@ jobs:
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           UUID=$(uuidgen)
           echo "$PROFILE_BASE64" | base64 --decode > \
-            ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
+            "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
 
           echo "Provisioning profile installed: $UUID.mobileprovision"
-          security cms -D -i ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision > profile.plist
+          # Print profile name & UUID for sanity check
+          security cms -D -i "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision" > profile.plist
           /usr/libexec/PlistBuddy -c "Print :Name" profile.plist || true
 
-      - name: Build iOS IPA for TestFlight (App Store export)
+      # ----- Manual signing via ExportOptions.plist (fixes 'No Accounts / No profiles' on CI) -----
+      - name: Create ExportOptions.plist (manual signing for App Store)
+        env:
+          TEAM_ID: "RMG82888A2"                       # Your Apple Team ID (from the Xcode log)
+          BUNDLE_ID: "com.amagi.sampleCiCd"           # Your iOS bundle identifier
+          PROFILE_NAME: "amagiCustomerDevAppStoreProfile"  # Or replace with the installed profile UUID
+        run: |
+          set -e
+          cat > ios/ExportOptions.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store</string>
+            <key>teamID</key><string>__TEAM_ID__</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>__BUNDLE_ID__</key><string>__PROFILE_NAME__</string>
+            </dict>
+            <key>destination</key><string>export</string>
+            <key>compileBitcode</key><true/>
+            <key>stripSwiftSymbols</key><true/>
+          </dict>
+          </plist>
+          PLIST
+
+          # Inject values (BSD sed on macOS requires the "" in -i "")
+          sed -i "" "s/__TEAM_ID__/${TEAM_ID}/" ios/ExportOptions.plist
+          sed -i "" "s/__BUNDLE_ID__/${BUNDLE_ID}/" ios/ExportOptions.plist
+          sed -i "" "s/__PROFILE_NAME__/${PROFILE_NAME}/" ios/ExportOptions.plist
+
+          echo "Created ios/ExportOptions.plist:"
+          cat ios/ExportOptions.plist
+
+      - name: Build iOS IPA for TestFlight (manual signing via ExportOptions.plist)
         env:
           DART_DEFINE: ${{ inputs.dart_define }}
         run: |
@@ -113,7 +158,8 @@ jobs:
             done
           fi
 
-          flutter build ipa --release --export-method app-store $EXTRA
+          # Build for App Store/TestFlight using manual signing
+          flutter build ipa --release --export-options-plist=ios/ExportOptions.plist $EXTRA
 
       - name: Upload IPA artifact (backup)
         uses: actions/upload-artifact@v4
