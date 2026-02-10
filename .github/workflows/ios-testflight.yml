@@ -24,6 +24,11 @@ jobs:
     runs-on: macos-latest
     name: Build IPA & Upload to TestFlight
 
+    env:
+      TEAM_ID: "RMG82888A2"                # Your Apple Team ID
+      BUNDLE_ID: "com.amagi.customerdev"   # Your iOS bundle identifier
+      SCHEME: "Runner"                     # Change if your scheme isn't 'Runner'
+
     steps:
       - name: Checkout master
         uses: actions/checkout@v4
@@ -94,27 +99,28 @@ jobs:
           security default-keychain -s build.keychain
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
 
-      - name: Install provisioning profile (App Store)
+      - name: Install provisioning profile (App Store) and export UUID
         env:
           PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE64 }}
         run: |
           set -e
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           UUID=$(uuidgen)
-          echo "$PROFILE_BASE64" | base64 --decode > \
-            "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
+          PROFILE_PATH="$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
+          echo "$PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
 
-          echo "Provisioning profile installed: $UUID.mobileprovision"
-          # Print profile name & UUID for sanity check
-          security cms -D -i "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision" > profile.plist
-          /usr/libexec/PlistBuddy -c "Print :Name" profile.plist || true
+          echo "Provisioning profile installed: $PROFILE_PATH"
+          security cms -D -i "$PROFILE_PATH" > profile.plist
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" profile.plist)
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" profile.plist)
+          echo "Profile Name: $PROFILE_NAME"
+          echo "Profile UUID: $PROFILE_UUID"
 
-      # ----- Manual signing via ExportOptions.plist (fixes 'No Accounts / No profiles' on CI) -----
+          # Export for later steps
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+
       - name: Create ExportOptions.plist (manual signing for App Store)
-        env:
-          TEAM_ID: "RMG82888A2"                       # Your Apple Team ID (from the Xcode log)
-          BUNDLE_ID: "com.amagi.customerdev"           # Your iOS bundle identifier
-          PROFILE_NAME: "amagiCustomerDevAppStoreProfile"  # Or replace with the installed profile UUID
         run: |
           set -e
           cat > ios/ExportOptions.plist <<'PLIST'
@@ -127,7 +133,7 @@ jobs:
             <key>signingStyle</key><string>manual</string>
             <key>provisioningProfiles</key>
             <dict>
-              <key>__BUNDLE_ID__</key><string>__PROFILE_NAME__</string>
+              <key>__BUNDLE_ID__</key><string>__PROFILE_UUID__</string>
             </dict>
             <key>destination</key><string>export</string>
             <key>compileBitcode</key><true/>
@@ -136,20 +142,20 @@ jobs:
           </plist>
           PLIST
 
-          # Inject values (BSD sed on macOS requires the "" in -i "")
+          # Inject values (BSD sed requires "" for in-place)
           sed -i "" "s/__TEAM_ID__/${TEAM_ID}/" ios/ExportOptions.plist
           sed -i "" "s/__BUNDLE_ID__/${BUNDLE_ID}/" ios/ExportOptions.plist
-          sed -i "" "s/__PROFILE_NAME__/${PROFILE_NAME}/" ios/ExportOptions.plist
+          sed -i "" "s/__PROFILE_UUID__/${PROFILE_UUID}/" ios/ExportOptions.plist
 
           echo "Created ios/ExportOptions.plist:"
           cat ios/ExportOptions.plist
 
-      - name: Build iOS IPA for TestFlight (manual signing via ExportOptions.plist)
+      # Build Flutter iOS WITHOUT codesign (so no dev profile/account is needed)
+      - name: Flutter build (no codesign)
         env:
           DART_DEFINE: ${{ inputs.dart_define }}
         run: |
           set -e
-
           EXTRA=""
           if [ -n "$DART_DEFINE" ]; then
             IFS=',' read -ra KV <<< "$DART_DEFINE"
@@ -157,9 +163,32 @@ jobs:
               EXTRA="$EXTRA --dart-define=$item"
             done
           fi
+          flutter build ios --release --no-codesign $EXTRA
 
-          # Build for App Store/TestFlight using manual signing
-          flutter build ipa --release --export-options-plist=ios/ExportOptions.plist $EXTRA
+      # Archive with xcodebuild while DISABLING code signing (prevents Automatic Signing)
+      - name: Archive with xcodebuild (unsigned)
+        run: |
+          set -e
+          xcodebuild -workspace ios/Runner.xcworkspace \
+                     -scheme "${SCHEME}" \
+                     -configuration Release \
+                     -destination 'generic/platform=iOS' \
+                     -archivePath build/ios/Runner.xcarchive \
+                     CODE_SIGNING_ALLOWED=NO \
+                     CODE_SIGNING_REQUIRED=NO \
+                     CODE_SIGN_STYLE=Manual \
+                     DEVELOPMENT_TEAM="${TEAM_ID}" \
+                     PRODUCT_BUNDLE_IDENTIFIER="${BUNDLE_ID}" \
+                     archive | xcpretty
+
+      # Export signed IPA using the App Store profile (manual signing)
+      - name: Export IPA from archive
+        run: |
+          set -e
+          xcodebuild -exportArchive \
+                     -archivePath build/ios/Runner.xcarchive \
+                     -exportPath build/ios/ipa \
+                     -exportOptionsPlist ios/ExportOptions.plist | xcpretty
 
       - name: Upload IPA artifact (backup)
         uses: actions/upload-artifact@v4
