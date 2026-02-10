@@ -109,6 +109,7 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
+          bundler-cache: false
 
       - name: Upload to TestFlight
         env:
@@ -117,6 +118,12 @@ jobs:
           APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_KEY: ${{ secrets.ASC_KEY_CONTENT }}
           APP_STORE_CONNECT_API_KEY_IS_KEY_CONTENT_BASE64: true
+
+          # FORCE API KEY MODE
+          FASTLANE_USER: "api_key"
+          FASTLANE_SKIP_CONFIRMATIONS: "true"
+          FASTLANE_SKIP_UPDATE_CHECK: "true"
+          FASTLANE_SESSION: ""
         run: |
           gem install fastlane
           fastlane pilot upload \
