@@ -86,7 +86,7 @@ jobs:
       - name: Install provisioning profile (App Store) & export UUID
         shell: bash
         env:
-          PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE4 64 }}
+          PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE64 }}
         run: |
           set -e
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
