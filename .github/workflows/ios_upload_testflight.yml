@@ -190,20 +190,20 @@ jobs:
           echo "$ASC_KEY_P8_BASE64" | base64 --decode > private_key.p8
           
           python3 <<'PY'
-          import os, json
+           import os, json
 
-          with open("private_key.p8","r") as f:
+           with open("private_key.p8","r") as f:
             key_content = f.read()
             
             data = {
-          "key_id": os.environ["ASC_KEY_ID"],
-          "issuer_id": os.environ["ASC_ISSUER_ID"],
-          "key": key_content
-          }
+              "key_id": os.environ["ASC_KEY_ID"],
+              "issuer_id": os.environ["ASC_ISSUER_ID"],
+              "key": key_content
+            }
             
             os.makedirs("fastlane", exist_ok=True)
           
-          with open("fastlane/api_key.json","w") as out:
+            with open("fastlane/api_key.json","w") as out:
             json.dump(data, out)
             
             print("Created fastlane/api_key.json")
