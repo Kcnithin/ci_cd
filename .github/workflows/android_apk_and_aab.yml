@@ -1,8 +1,12 @@
-name: Android - Build Signed APK & AAB + Auto Version Bump (Windows)
+name: Android - Build Signed (APK or AAB) - Windows
 
 on:
   workflow_dispatch:
     inputs:
+      build_format:
+        description: "Choose build output: apk or aab"
+        required: true
+        default: "apk"
       bump_strategy:
         description: "Version bump strategy: build (default), patch, minor, major"
         required: true
@@ -18,10 +22,10 @@ permissions:
 jobs:
   build-android:
     runs-on: windows-latest
-    name: Build Signed APK & AAB on Windows
+    name: Build Signed ${{ inputs.build_format }} on Windows
 
     env:
-      PACKAGE_NAME: "com.amagi.customerdev"
+      PACKAGE_NAME: "com.example.sample_ci_cd"
 
     steps:
       - name: Checkout master
@@ -90,7 +94,6 @@ jobs:
           $newVersion = "{0}.{1}.{2}+{3}" -f $maj, $min, $pat, $code
           $newContent = $regex.Replace($content, "version: $newVersion")
 
-          # Write back
           $newContent | Set-Content -Path $pub -Encoding UTF8
 
           "APP_VERSION=$newVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
@@ -119,14 +122,14 @@ jobs:
           $gradleDir = Join-Path $env:USERPROFILE ".gradle"
           New-Item -ItemType Directory -Force -Path $gradleDir | Out-Null
           $props = @"
-MY_KEYSTORE_FILE=${{ github.workspace }}/android/keystores/upload-keystore.jks
-MY_KEYSTORE_PASSWORD=$env:ANDROID_KEYSTORE_PASSWORD
-MY_KEY_ALIAS=$env:ANDROID_KEY_ALIAS
-MY_KEY_PASSWORD=$env:ANDROID_KEY_ALIAS_PASSWORD
-org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8
-android.useAndroidX=true
-android.enableJetifier=true
-"@
+          MY_KEYSTORE_FILE=${{ github.workspace }}/android/keystores/upload-keystore.jks
+          MY_KEYSTORE_PASSWORD=$env:ANDROID_KEYSTORE_PASSWORD
+          MY_KEY_ALIAS=$env:ANDROID_KEY_ALIAS
+          MY_KEY_PASSWORD=$env:ANDROID_KEY_ALIAS_PASSWORD
+          org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.enableJetifier=true
+          "@
           $props | Out-File -FilePath (Join-Path $gradleDir "gradle.properties") -Encoding utf8 -Append
           Write-Host "Wrote $gradleDir\gradle.properties"
 
@@ -135,57 +138,51 @@ android.enableJetifier=true
         run: |
           $appGradle = "android/app/build.gradle"
           $content = Get-Content $appGradle -Raw
-
+          
           if ($content -notmatch "signingConfigs\s*{\s*release") {
             Write-Host "Injecting release signingConfig…"
-
-            # Insert signingConfigs block just after 'android {' to avoid duplicating existing buildTypes
+          
             $signBlock = @"
-    signingConfigs {
-        release {
-            // Read from env first, then Gradle properties as fallback
-            def kf = System.getenv("MY_KEYSTORE_FILE") ?: (project.hasProperty('MY_KEYSTORE_FILE') ? MY_KEYSTORE_FILE : null)
-            def kp = System.getenv("MY_KEYSTORE_PASSWORD") ?: (project.hasProperty('MY_KEYSTORE_PASSWORD') ? MY_KEYSTORE_PASSWORD : null)
-            def ka = System.getenv("MY_KEY_ALIAS") ?: (project.hasProperty('MY_KEY_ALIAS') ? MY_KEY_ALIAS : null)
-            def kap = System.getenv("MY_KEY_PASSWORD") ?: (project.hasProperty('MY_KEY_PASSWORD') ? MY_KEY_PASSWORD : null)
-            if (kf != null) storeFile file(kf)
-            if (kp != null) storePassword kp
-            if (ka != null) keyAlias ka
-            if (kap != null) keyPassword kap
-        }
-    }
-"@
-
-            $updated = $content -replace "(?s)android\s*{", ("android {" + "`r`n" + $signBlock)
-            $content = $updated
+            signingConfigs {
+              release {
+              def kf = System.getenv("MY_KEYSTORE_FILE") ?: (project.hasProperty('MY_KEYSTORE_FILE') ? MY_KEYSTORE_FILE : null)
+              def kp = System.getenv("MY_KEYSTORE_PASSWORD") ?: (project.hasProperty('MY_KEYSTORE_PASSWORD') ? MY_KEYSTORE_PASSWORD : null)
+              def ka = System.getenv("MY_KEY_ALIAS") ?: (project.hasProperty('MY_KEY_ALIAS') ? MY_KEY_ALIAS : null)
+              def kap = System.getenv("MY_KEY_PASSWORD") ?: (project.hasProperty('MY_KEY_PASSWORD') ? MY_KEY_PASSWORD : null)
+                if (kf != null) storeFile file(kf)
+                if (kp != null) storePassword kp
+                if (ka != null) keyAlias ka
+                if (kap != null) keyPassword kap
+              }
+            }
+          "@$content = $content -replace "(?s)android\s*{", ("android {" + "`r`n" + $signBlock)
           }
 
           if ($content -notmatch "buildTypes\s*{\s*.*release\s*{[^}]*signingConfig\s+signingConfigs\.release") {
             Write-Host "Ensuring buildTypes.release uses signingConfigs.release…"
-            # Ensure buildTypes.release exists and references signingConfigs.release
             if ($content -match "buildTypes\s*{") {
               $content = $content -replace "(?s)(buildTypes\s*{\s*release\s*{)", "`$1`r`n            signingConfig signingConfigs.release"
             } else {
-              # Append a buildTypes block
-              $content = $content -replace "(?s)android\s*{", ("android {" + @"
-    buildTypes {
-        release {
-            signingConfig signingConfigs.release
-            minifyEnabled true
-            shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-        }
-    }
-"@)
-            }
+                $content = $content -replace "(?s)android\s*{", ("android {" + @"
+                buildTypes {
+                  release {
+                  signingConfig signingConfigs.release
+                  minifyEnabled true
+                  shrinkResources true
+                  proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+                  }
+                }
+            "@)
+              }
           }
 
           $content | Set-Content $appGradle -Encoding utf8
 
       # -----------------------------
-      # Build (APK + AAB)
+      # Build one format based on input
       # -----------------------------
-      - name: Build signed release APK
+      - name: Build signed release APK (selected)
+        if: ${{ inputs.build_format == 'apk' }}
         shell: powershell
         env:
           DART_DEFINE: ${{ inputs.dart_define }}
@@ -197,16 +194,18 @@ android.enableJetifier=true
             }
           }
           flutter build apk --release $extra
-
+          
           $apk = "build/app/outputs/flutter-apk/app-release.apk"
           if (!(Test-Path $apk)) {
-            Write-Error "❌ APK not found at $apk"
-            Get-ChildItem -Recurse build | Select-Object FullName, Length | Format-Table -AutoSize
-            exit 1
+          Write-Error "❌ APK not found at $apk"
+          Get-ChildItem -Recurse build | Select-Object FullName, Length | Format-Table -AutoSize
+          exit 1
           }
-          "APK_PATH=$apk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ARTIFACT_PATH=$apk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ARTIFACT_NAME=android-apk-${{ env.APP_VERSION }}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Build signed release AAB
+      - name: Build signed release AAB (selected)
+        if: ${{ inputs.build_format == 'aab' }}
         shell: powershell
         env:
           DART_DEFINE: ${{ inputs.dart_define }}
@@ -218,28 +217,22 @@ android.enableJetifier=true
             }
           }
           flutter build appbundle --release $extra
-
+          
           $aab = "build/app/outputs/bundle/release/app-release.aab"
           if (!(Test-Path $aab)) {
             Write-Error "❌ AAB not found at $aab"
             Get-ChildItem -Recurse build | Select-Object FullName, Length | Format-Table -AutoSize
             exit 1
           }
-          "AAB_PATH=$aab" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ARTIFACT_PATH=$aab" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ARTIFACT_NAME=android-aab-${{ env.APP_VERSION }}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       # -----------------------------
-      # Upload both artifacts
+      # Upload selected artifact
       # -----------------------------
-      - name: Upload Signed APK
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: android-apk-${{ env.APP_VERSION }}
-          path: ${{ env.APK_PATH }}
-          if-no-files-found: error
-
-      - name: Upload Signed AAB
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-aab-${{ env.APP_VERSION }}
-          path: ${{ env.AAB_PATH }}
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.ARTIFACT_PATH }}
           if-no-files-found: error
