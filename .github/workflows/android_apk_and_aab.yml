@@ -116,7 +116,15 @@ jobs:
           [IO.File]::WriteAllBytes("android\keystores\cicd-keystore.jks", $bytes)
           Get-ChildItem "android\keystores"
 
-      # with storeFile path relative to android/app (module dir)
+
+      # Remove any stale key.properties files
+      - name: Remove pre-existing key.properties (root and android)
+        shell: powershell
+        run: |
+          if (Test-Path "key.properties") { Remove-Item -Force "key.properties"; Write-Host "Deleted repo-root key.properties" }
+          if (Test-Path "android/key.properties") { Remove-Item -Force "android/key.properties"; Write-Host "Deleted android/key.properties" }
+
+        # with storeFile path relative to android/app (module dir)
       - name: Create key.properties at repo root (Kotlin DSL signing)
         shell: powershell
         env:
