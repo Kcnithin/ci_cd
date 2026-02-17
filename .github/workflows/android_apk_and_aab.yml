@@ -113,7 +113,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path "android\keystores" | Out-Null
           $bytes = [Convert]::FromBase64String($env:ANDROID_KEYSTORE_BASE64)
-          [IO.File]::WriteAllBytes("android\keystores\upload-keystore.jks", $bytes)
+          [IO.File]::WriteAllBytes("android\keystores\cicd-keystore.jks", $bytes)
           Get-ChildItem "android\keystores"
 
       # with storeFile path relative to android/app (module dir)
@@ -125,7 +125,7 @@ jobs:
           ANDROID_KEY_ALIAS_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           $props = @"
-          storeFile=../keystores/upload-keystore.jks
+          storeFile=../keystores/cicd-keystore.jks
           storePassword=$env:ANDROID_KEYSTORE_PASSWORD
           keyAlias=$env:ANDROID_KEY_ALIAS
           keyPassword=$env:ANDROID_KEY_ALIAS_PASSWORD
