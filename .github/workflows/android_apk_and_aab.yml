@@ -116,23 +116,23 @@ jobs:
           [IO.File]::WriteAllBytes("android\keystores\upload-keystore.jks", $bytes)
           Get-ChildItem "android\keystores"
 
-      # Create key.properties in android/ so Kotlin DSL picks it up (no runtime Gradle edits needed)
-      - name: Create android/key.properties for signing (Kotlin DSL)
+      # with storeFile path relative to android/app (module dir)
+      - name: Create key.properties at repo root (Kotlin DSL signing)
         shell: powershell
-        working-directory: android
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           ANDROID_KEY_ALIAS_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           $props = @"
-          storeFile=keystores/upload-keystore.jks
+          storeFile=../keystores/upload-keystore.jks
           storePassword=$env:ANDROID_KEYSTORE_PASSWORD
           keyAlias=$env:ANDROID_KEY_ALIAS
           keyPassword=$env:ANDROID_KEY_ALIAS_PASSWORD
           "@
+                  # The file must be at the repository root
                   $props | Set-Content -Path "key.properties" -Encoding UTF8
-          Write-Host "Wrote android\key.properties"
+          Write-Host "Wrote key.properties at repo root"
 
       # -----------------------------
       # Build one format based on input
