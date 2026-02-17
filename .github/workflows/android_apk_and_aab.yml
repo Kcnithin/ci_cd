@@ -36,7 +36,7 @@ jobs:
       - name: Set up Java 17 (AGP compatible)
         uses: actions/setup-java@v4
         with:
-          distribution: "temurin"
+          distribution: temurin
           java-version: "17"
           cache: gradle
 
@@ -46,6 +46,10 @@ jobs:
           flutter-version: "3.38.9"
           channel: stable
 
+      - name: Flutter clean
+        shell: powershell
+        run: flutter clean
+
       - name: Flutter pub get
         shell: powershell
         run: flutter pub get
@@ -53,7 +57,7 @@ jobs:
       - name: Ensure android folder exists
         shell: powershell
         run: |
-          if (!(Test-Path "android/build.gradle")) {
+          if (-not (Test-Path "android/app/build.gradle") -and -not (Test-Path "android/app/build.gradle.kts")) {
             flutter create .
           }
 
@@ -112,71 +116,23 @@ jobs:
           [IO.File]::WriteAllBytes("android\keystores\upload-keystore.jks", $bytes)
           Get-ChildItem "android\keystores"
 
-      - name: Write signing to %USERPROFILE%\.gradle\gradle.properties
+      # Create key.properties in android/ so Kotlin DSL picks it up (no runtime Gradle edits needed)
+      - name: Create android/key.properties for signing (Kotlin DSL)
         shell: powershell
+        working-directory: android
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           ANDROID_KEY_ALIAS_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          $gradleDir = Join-Path $env:USERPROFILE ".gradle"
-          New-Item -ItemType Directory -Force -Path $gradleDir | Out-Null
           $props = @"
-          MY_KEYSTORE_FILE=${{ github.workspace }}/android/keystores/upload-keystore.jks
-          MY_KEYSTORE_PASSWORD=$env:ANDROID_KEYSTORE_PASSWORD
-          MY_KEY_ALIAS=$env:ANDROID_KEY_ALIAS
-          MY_KEY_PASSWORD=$env:ANDROID_KEY_ALIAS_PASSWORD
-          org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8
-          android.useAndroidX=true
-          android.enableJetifier=true
+          storeFile=keystores/upload-keystore.jks
+          storePassword=$env:ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$env:ANDROID_KEY_ALIAS
+          keyPassword=$env:ANDROID_KEY_ALIAS_PASSWORD
           "@
-          $props | Out-File -FilePath (Join-Path $gradleDir "gradle.properties") -Encoding utf8 -Append
-          Write-Host "Wrote $gradleDir\gradle.properties"
-
-      - name: Ensure signingConfigs.release in android/app/build.gradle (idempotent)
-        shell: powershell
-        run: |
-          $appGradle = "android/app/build.gradle"
-          $content = Get-Content $appGradle -Raw
-          
-          if ($content -notmatch "signingConfigs\s*{\s*release") {
-            Write-Host "Injecting release signingConfig…"
-          
-            $signBlock = @"
-            signingConfigs {
-              release {
-              def kf = System.getenv("MY_KEYSTORE_FILE") ?: (project.hasProperty('MY_KEYSTORE_FILE') ? MY_KEYSTORE_FILE : null)
-              def kp = System.getenv("MY_KEYSTORE_PASSWORD") ?: (project.hasProperty('MY_KEYSTORE_PASSWORD') ? MY_KEYSTORE_PASSWORD : null)
-              def ka = System.getenv("MY_KEY_ALIAS") ?: (project.hasProperty('MY_KEY_ALIAS') ? MY_KEY_ALIAS : null)
-              def kap = System.getenv("MY_KEY_PASSWORD") ?: (project.hasProperty('MY_KEY_PASSWORD') ? MY_KEY_PASSWORD : null)
-                if (kf != null) storeFile file(kf)
-                if (kp != null) storePassword kp
-                if (ka != null) keyAlias ka
-                if (kap != null) keyPassword kap
-              }
-            }
-          "@$content = $content -replace "(?s)android\s*{", ("android {" + "`r`n" + $signBlock)
-          }
-
-          if ($content -notmatch "buildTypes\s*{\s*.*release\s*{[^}]*signingConfig\s+signingConfigs\.release") {
-            Write-Host "Ensuring buildTypes.release uses signingConfigs.release…"
-            if ($content -match "buildTypes\s*{") {
-              $content = $content -replace "(?s)(buildTypes\s*{\s*release\s*{)", "`$1`r`n            signingConfig signingConfigs.release"
-            } else {
-                $content = $content -replace "(?s)android\s*{", ("android {" + @"
-                buildTypes {
-                  release {
-                  signingConfig signingConfigs.release
-                  minifyEnabled true
-                  shrinkResources true
-                  proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-                  }
-                }
-            "@)
-              }
-          }
-
-          $content | Set-Content $appGradle -Encoding utf8
+                  $props | Set-Content -Path "key.properties" -Encoding UTF8
+          Write-Host "Wrote android\key.properties"
 
       # -----------------------------
       # Build one format based on input
