@@ -113,7 +113,12 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path "android\keystores" | Out-Null
           $bytes = [Convert]::FromBase64String($env:ANDROID_KEYSTORE_BASE64)
-          [IO.File]::WriteAllBytes("android\keystores\cicd-keystore.jks", $bytes)
+          $keystorePath = Resolve-Path "android\keystores"
+          $keystoreFile = "$keystorePath\cicd-keystore.jks"
+          [IO.File]::WriteAllBytes($keystoreFile, $bytes)
+          
+          # Export absolute path for subsequent steps
+          "ANDROID_KEYSTORE_PATH=$keystoreFile" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Get-ChildItem "android\keystores"
 
 
@@ -159,6 +164,10 @@ jobs:
         shell: powershell
         env:
           DART_DEFINE: ${{ inputs.dart_define }}
+          ANDROID_KEYSTORE_PATH: ${{ env.ANDROID_KEYSTORE_PATH }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          ANDROID_KEY_ALIAS_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           $extra = ""
           if ($env:DART_DEFINE -ne "") {
@@ -182,6 +191,10 @@ jobs:
         shell: powershell
         env:
           DART_DEFINE: ${{ inputs.dart_define }}
+          ANDROID_KEYSTORE_PATH: ${{ env.ANDROID_KEYSTORE_PATH }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          ANDROID_KEY_ALIAS_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           $extra = ""
           if ($env:DART_DEFINE -ne "") {
