@@ -117,14 +117,6 @@ jobs:
           Get-ChildItem "android\keystores"
 
 
-      # Remove any stale key.properties files
-      - name: Remove pre-existing key.properties (root and android)
-        shell: powershell
-        run: |
-          if (Test-Path "key.properties") { Remove-Item -Force "key.properties"; Write-Host "Deleted repo-root key.properties" }
-          if (Test-Path "android/key.properties") { Remove-Item -Force "android/key.properties"; Write-Host "Deleted android/key.properties" }
-
-        # with storeFile path relative to android/app (module dir)
       - name: Create key.properties at repo root (Kotlin DSL signing)
         shell: powershell
         env:
@@ -142,6 +134,22 @@ jobs:
                   $props | Set-Content -Path "key.properties" -Encoding UTF8
           Write-Host "Wrote key.properties at repo root"
 
+      - name: Debug signing files
+        shell: powershell
+        run: |
+          Write-Host "Checking root key.properties..."
+          if (Test-Path "key.properties") {
+            Write-Host "FOUND key.properties"
+            Get-Content "key.properties"
+          } else {
+            Write-Host "key.properties NOT FOUND"
+          
+          Write-Host "Checking keystore..."
+          if (Test-Path "android/keystores/cicd-keystore.jks") {
+            Write-Host "Keystore FOUND"
+          } else {
+            Write-Host "Keystore NOT FOUND"
+          }
       # -----------------------------
       # Build one format based on input
       # -----------------------------
