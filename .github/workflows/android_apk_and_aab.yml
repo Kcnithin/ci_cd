@@ -125,7 +125,7 @@ jobs:
           ANDROID_KEY_ALIAS_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           $props = @"
-          storeFile=../keystores/cicd-keystore.jks
+          storeFile=android/keystores/cicd-keystore.jks
           storePassword=$env:ANDROID_KEYSTORE_PASSWORD
           keyAlias=$env:ANDROID_KEY_ALIAS
           keyPassword=$env:ANDROID_KEY_ALIAS_PASSWORD
