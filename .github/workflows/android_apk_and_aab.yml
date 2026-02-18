@@ -143,6 +143,7 @@ jobs:
             Get-Content "key.properties"
           } else {
             Write-Host "key.properties NOT FOUND"
+          }
           
           Write-Host "Checking keystore..."
           if (Test-Path "android/keystores/cicd-keystore.jks") {
