@@ -125,24 +125,24 @@ jobs:
           ANDROID_KEY_ALIAS_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           $props = @"
-          storeFile=android/keystores/cicd-keystore.jks
+          storeFile=../keystores/cicd-keystore.jks
           storePassword=$env:ANDROID_KEYSTORE_PASSWORD
           keyAlias=$env:ANDROID_KEY_ALIAS
           keyPassword=$env:ANDROID_KEY_ALIAS_PASSWORD
           "@
-                  # The file must be at the repository root
-                  $props | Set-Content -Path "key.properties" -Encoding UTF8
-          Write-Host "Wrote key.properties at repo root"
+                  # The file must be at the android root so android/app/build.gradle finds it
+                  $props | Set-Content -Path "android/key.properties" -Encoding UTF8
+          Write-Host "Wrote android/key.properties"
 
       - name: Debug signing files
         shell: powershell
         run: |
-          Write-Host "Checking root key.properties..."
-          if (Test-Path "key.properties") {
-            Write-Host "FOUND key.properties"
-            Get-Content "key.properties"
+          Write-Host "Checking android/key.properties..."
+          if (Test-Path "android/key.properties") {
+            Write-Host "FOUND android/key.properties"
+            Get-Content "android/key.properties"
           } else {
-            Write-Host "key.properties NOT FOUND"
+            Write-Host "android/key.properties NOT FOUND"
           }
           
           Write-Host "Checking keystore..."
