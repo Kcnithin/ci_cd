@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   build-and-upload:
-    runs-on: macos-latest
+    runs-on: macos-15
     name: Build IPA & Upload to TestFlight
 
     env:
@@ -34,6 +34,28 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: master
+
+      # --- Select Xcode 26 (required for iOS 26 SDK builds) ---
+      - name: Use Xcode 26
+        shell: bash
+        run: |
+          set -e
+          # List installed Xcodes (for debugging)
+          ls -1 /Applications | sed -n 's/^Xcode_.*\.app$/&/p' || true
+          # Select Xcode 26 (adjust path if image naming differs)
+          if [ -d "/Applications/Xcode_26.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_26.app
+          else
+            # Fallback: pick the highest Xcode_26*.app if present
+            XCODE_26=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n1 || true)
+            if [ -n "$XCODE_26" ]; then
+              sudo xcode-select -s "$XCODE_26"
+            else
+              echo "❌ Xcode 26 not found on runner. Check runner image notes."
+              exit 1
+            fi
+          fi
+          xcodebuild -version
 
       - name: Set up Flutter 3.38.9
         uses: subosito/flutter-action@v2
@@ -55,6 +77,18 @@ jobs:
           if [ ! -f ios/Podfile ]; then
             echo "iOS platform files missing — generating with 'flutter create .'"
             flutter create .
+          fi
+
+      # --- (Optional but recommended) Avoid TestFlight "Missing Compliance" ---
+      # If your app uses only exempt encryption, ensure this key is present.
+      - name: Ensure export-compliance key in Info.plist (ITSAppUsesNonExemptEncryption=false)
+        shell: bash
+        run: |
+          set -e
+          PLIST="ios/Runner/Info.plist"
+          if [ -f "$PLIST" ]; then
+            /usr/libexec/PlistBuddy -c "Print :ITSAppUsesNonExemptEncryption" "$PLIST" >/dev/null 2>&1 || \
+              /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
           fi
 
       - name: Install CocoaPods
@@ -103,7 +137,7 @@ jobs:
         shell: bash
         run: |
           set -e
-          cat > ios/ExportOptions.plist <<EOF
+          cat > ios/ExportOptions.plist <<'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -116,11 +150,16 @@ jobs:
                 <key>${BUNDLE_ID}</key><string>${PROFILE_UUID}</string>
               </dict>
               <key>destination</key><string>export</string>
-              <key>compileBitcode</key><true/>
+              <!-- Bitcode deprecated on modern Xcode; keep this false -->
+              <key>compileBitcode</key><false/>
               <key>stripSwiftSymbols</key><true/>
             </dict>
           </plist>
           EOF
+          # Replace env placeholders
+          sed -i '' "s/\${TEAM_ID}/${TEAM_ID}/g" ios/ExportOptions.plist
+          sed -i '' "s/\${BUNDLE_ID}/${BUNDLE_ID}/g" ios/ExportOptions.plist
+          sed -i '' "s/\${PROFILE_UUID}/${PROFILE_UUID}/g" ios/ExportOptions.plist
 
       - name: Flutter build (no codesign)
         shell: bash
@@ -134,7 +173,8 @@ jobs:
               [ -n "$kv" ] && EXTRA="$EXTRA --dart-define=$kv"
             done; unset IFS
           fi
-          flutter build ios --release --no-codesign $EXTRA
+          # Ensure unique build number so every upload is accepted
+          flutter build ios --release --no-codesign --build-number $GITHUB_RUN_NUMBER $EXTRA
 
       - name: Archive (unsigned)
         shell: bash
@@ -188,30 +228,28 @@ jobs:
           set -e
           mkdir -p fastlane
           echo "$ASC_KEY_P8_BASE64" | base64 --decode > private_key.p8
-
           jq -n \
             --arg key_id "$ASC_KEY_ID" \
             --arg issuer_id "$ASC_ISSUER_ID" \
             --arg key "$(cat private_key.p8)" \
             '{key_id:$key_id, issuer_id:$issuer_id, key:$key}' \
             > fastlane/api_key.json
-
           echo "Created fastlane/api_key.json"
+
       - name: Upload to TestFlight (pilot)
         shell: bash
         env:
           CHANGELOG: ${{ inputs.changelog }}
         run: |
-              set -e
-              # Dynamically pick the IPA we just exported
-              IPA_PATH="$(ls -t build/ios/ipa/*.ipa | head -n 1)"
-              if [ ! -f "$IPA_PATH" ]; then
-                echo "❌ IPA not found in build/ios/ipa. Contents:"; ls -la build/ios/ipa || true
-                exit 1
-              fi
-              echo "Uploading: $IPA_PATH"
-              fastlane pilot upload \
-                --ipa "$IPA_PATH" \
-                --skip_waiting_for_build_processing true \
-                --changelog "$CHANGELOG" \
-                --api_key_path fastlane/api_key.json
+          set -e
+          IPA_PATH="$(ls -t build/ios/ipa/*.ipa | head -n 1)"
+          if [ ! -f "$IPA_PATH" ]; then
+            echo "❌ IPA not found in build/ios/ipa. Contents:"; ls -la build/ios/ipa || true
+            exit 1
+          fi
+          echo "Uploading: $IPA_PATH"
+          fastlane pilot upload \
+            --ipa "$IPA_PATH" \
+            --skip_waiting_for_build_processing true \
+            --changelog "$CHANGELOG" \
+            --api_key_path fastlane/api_key.json
