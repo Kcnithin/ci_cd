@@ -21,6 +21,7 @@ concurrency:
 
 jobs:
   build-and-upload:
+    # Pin to a modern image that provides Xcode 26+
     runs-on: macos-15
     name: Build IPA & Upload to TestFlight
 
@@ -40,13 +41,13 @@ jobs:
         shell: bash
         run: |
           set -e
-          # List installed Xcodes (for debugging)
+          # Show installed Xcodes
           ls -1 /Applications | sed -n 's/^Xcode_.*\.app$/&/p' || true
-          # Select Xcode 26 (adjust path if image naming differs)
+
+          # Prefer exact Xcode_26.app, else pick highest Xcode_26*.app
           if [ -d "/Applications/Xcode_26.app" ]; then
             sudo xcode-select -s /Applications/Xcode_26.app
           else
-            # Fallback: pick the highest Xcode_26*.app if present
             XCODE_26=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n1 || true)
             if [ -n "$XCODE_26" ]; then
               sudo xcode-select -s "$XCODE_26"
@@ -64,6 +65,7 @@ jobs:
           channel: stable
           cache: true
 
+        # Fetch packages
       - name: Flutter pub get
         shell: bash
         run: |
@@ -79,8 +81,7 @@ jobs:
             flutter create .
           fi
 
-      # --- (Optional but recommended) Avoid TestFlight "Missing Compliance" ---
-      # If your app uses only exempt encryption, ensure this key is present.
+      # --- OPTIONAL but recommended: avoid TestFlight "Missing Compliance" if you don't use custom encryption ---
       - name: Ensure export-compliance key in Info.plist (ITSAppUsesNonExemptEncryption=false)
         shell: bash
         run: |
@@ -161,6 +162,56 @@ jobs:
           sed -i '' "s/\${BUNDLE_ID}/${BUNDLE_ID}/g" ios/ExportOptions.plist
           sed -i '' "s/\${PROFILE_UUID}/${PROFILE_UUID}/g" ios/ExportOptions.plist
 
+      # --- Setup Ruby & Fastlane BEFORE build so we can compute next build number from ASC ---
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Install fastlane (and jq if missing)
+        shell: bash
+        run: |
+          set -e
+          gem install fastlane --no-document
+          command -v jq >/dev/null 2>&1 || brew install jq
+
+      - name: Create API Key JSON (for Fastlane App Store Connect)
+        shell: bash
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          set -e
+          mkdir -p fastlane
+          echo "$ASC_KEY_P8_BASE64" | base64 --decode > private_key.p8
+
+          jq -n \
+            --arg key_id "$ASC_KEY_ID" \
+            --arg issuer_id "$ASC_ISSUER_ID" \
+            --arg key "$(cat private_key.p8)" \
+            '{key_id:$key_id, issuer_id:$issuer_id, key:$key}' \
+            > fastlane/api_key.json
+
+          echo "Created fastlane/api_key.json"
+
+      # --- ROBUST: fetch latest TestFlight build number from App Store Connect and increment ---
+      - name: Determine next build number from TestFlight
+        shell: bash
+        run: |
+          set -e
+          # Get latest build number for this bundle id; default to 0 if none found
+          LATEST=$(fastlane run latest_testflight_build_number \
+            app_identifier:"${BUNDLE_ID}" \
+            api_key_path:"fastlane/api_key.json" \
+            | ruby -e 'puts STDIN.read.scan(/Result: (\d+)/).flatten.first || 0')
+
+          if [ -z "$LATEST" ]; then LATEST=0; fi
+          NEXT=$((LATEST + 1))
+          echo "Resolved next build number from ASC: $NEXT (latest was $LATEST)"
+          echo "IOS_NEXT_BUILD_NUMBER=$NEXT" >> "$GITHUB_ENV"
+
+      # --- Build with the computed build number ---
       - name: Flutter build (no codesign)
         shell: bash
         env:
@@ -173,8 +224,7 @@ jobs:
               [ -n "$kv" ] && EXTRA="$EXTRA --dart-define=$kv"
             done; unset IFS
           fi
-          # Ensure unique build number so every upload is accepted
-          flutter build ios --release --no-codesign --build-number $GITHUB_RUN_NUMBER $EXTRA
+          flutter build ios --release --no-codesign --build-number "$IOS_NEXT_BUILD_NUMBER" $EXTRA
 
       - name: Archive (unsigned)
         shell: bash
@@ -206,35 +256,6 @@ jobs:
           name: ios-ipa
           path: build/ios/ipa/*.ipa
           if-no-files-found: error
-
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.3"
-
-      - name: Install fastlane
-        shell: bash
-        run: |
-          set -e
-          gem install fastlane
-
-      - name: Create API Key JSON (fastlane pilot)
-        shell: bash
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
-        run: |
-          set -e
-          mkdir -p fastlane
-          echo "$ASC_KEY_P8_BASE64" | base64 --decode > private_key.p8
-          jq -n \
-            --arg key_id "$ASC_KEY_ID" \
-            --arg issuer_id "$ASC_ISSUER_ID" \
-            --arg key "$(cat private_key.p8)" \
-            '{key_id:$key_id, issuer_id:$issuer_id, key:$key}' \
-            > fastlane/api_key.json
-          echo "Created fastlane/api_key.json"
 
       - name: Upload to TestFlight (pilot)
         shell: bash
