@@ -27,7 +27,7 @@ jobs:
       - name: Checkout master
         uses: actions/checkout@v4
         with:
-          ref: master
+          ref: ${{ github.ref }}
 
       - name: Set up Java 17 (AGP compatible)
         uses: actions/setup-java@v4
