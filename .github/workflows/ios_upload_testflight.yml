@@ -31,10 +31,10 @@ jobs:
       SCHEME: "Runner"
 
     steps:
-      - name: Checkout master
+      - name: Checkout branch
         uses: actions/checkout@v4
         with:
-          ref: master
+          ref: ${{ github.ref }}
 
       # --- Select Xcode 26 (required for iOS 26 SDK builds) ---
       - name: Use Xcode 26
