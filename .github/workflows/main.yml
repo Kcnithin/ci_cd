@@ -1,0 +1,138 @@
+name: Android - Build & Upload to Play Store
+
+on:
+  workflow_dispatch:
+    inputs:
+      dart_define:
+        description: "Optional --dart-define key=value (comma-separated)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: windows-latest
+
+    env:
+      PACKAGE_NAME: com.example.sample_ci_cd
+
+    steps:
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.9"
+          channel: stable
+
+      - name: Flutter Clean
+        run: flutter clean
+
+      - name: Flutter Pub Get
+        run: flutter pub get
+
+      # ---------------------------
+      # Read version from pubspec
+      # ---------------------------
+
+      - name: Read version from pubspec.yaml
+        shell: powershell
+        run: |
+          $content = Get-Content pubspec.yaml
+          $versionLine = $content | Select-String "version:"
+          $version = $versionLine.ToString().Split(" ")[1]
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      # ---------------------------
+      # Decode keystore
+      # ---------------------------
+
+      - name: Decode Keystore
+        shell: powershell
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          New-Item -ItemType Directory -Force -Path android/keystores
+          $bytes = [Convert]::FromBase64String($env:KEYSTORE_BASE64)
+          [IO.File]::WriteAllBytes("android/keystores/upload-keystore.jks", $bytes)
+
+      # ---------------------------
+      # Create key.properties
+      # ---------------------------
+
+      - name: Create key.properties
+        shell: powershell
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          $props = @"
+          storeFile=../keystores/upload-keystore.jks
+          storePassword=$env:KEYSTORE_PASSWORD
+          keyAlias=$env:KEY_ALIAS
+          keyPassword=$env:KEY_PASSWORD
+          "@
+          $props | Set-Content android/key.properties
+
+      # ---------------------------
+      # Auto increment versionCode
+      # ---------------------------
+
+      - name: Increment VersionCode
+        shell: powershell
+        run: |
+          $gradleFile = "android/app/build.gradle"
+          if (Test-Path $gradleFile) {
+            (Get-Content $gradleFile) -replace 'versionCode (\d+)', { "versionCode " + ([int]$args[0].Groups[1].Value + 1) } | Set-Content $gradleFile
+          }
+
+      # ---------------------------
+      # Build AAB
+      # ---------------------------
+
+      - name: Build Release AAB
+        shell: powershell
+        env:
+          DART_DEFINE: ${{ inputs.dart_define }}
+        run: |
+          $extra = ""
+          if ($env:DART_DEFINE -ne "") {
+            $env:DART_DEFINE.Split(",") | ForEach-Object {
+              if ($_ -ne "") { $extra += " --dart-define=$_" }
+            }
+          }
+          flutter build appbundle --release $extra
+
+      # ---------------------------
+      # Upload artifact
+      # ---------------------------
+
+      - name: Upload AAB Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-aab
+          path: build/app/outputs/bundle/release/app-release.aab
+
+      # ---------------------------
+      # Upload to Play Store
+      # ---------------------------
+
+      - name: Upload to Play Console
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_JSON_KEY }}
+          packageName: ${{ env.PACKAGE_NAME }}
+          releaseFiles: build/app/outputs/bundle/release/app-release.aab
+          track: internal
+          status: completed
