@@ -110,7 +110,7 @@ jobs:
               if ($_ -ne "") { $extra += " --dart-define=$_" }
             }
           }
-          flutter build appbundle --release --build-number $env:VERSION_CODE $extra
+          flutter build appbundle --release --build-number $env:VERSION_CODE --target-platform android-arm,android-arm64,android-x64 $extra
 
       # ---------------------------
       # Upload artifact
