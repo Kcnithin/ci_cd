@@ -89,13 +89,11 @@ jobs:
       # Auto increment versionCode
       # ---------------------------
 
-      - name: Increment VersionCode
+      - name: Compute VERSION_CODE
         shell: powershell
         run: |
-          $gradleFile = "android/app/build.gradle"
-          if (Test-Path $gradleFile) {
-            (Get-Content $gradleFile) -replace 'versionCode (\d+)', { "versionCode " + ([int]$args[0].Groups[1].Value + 1) } | Set-Content $gradleFile
-          }
+          $next = $env:GITHUB_RUN_NUMBER
+          "VERSION_CODE=$next" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       # ---------------------------
       # Build AAB
@@ -112,7 +110,7 @@ jobs:
               if ($_ -ne "") { $extra += " --dart-define=$_" }
             }
           }
-          flutter build appbundle --release $extra
+          flutter build appbundle --release --build-number $env:VERSION_CODE $extra
 
       # ---------------------------
       # Upload artifact
