@@ -16,7 +16,7 @@ jobs:
     runs-on: windows-latest
 
     env:
-      PACKAGE_NAME: com.example.sample_ci_cd
+      PACKAGE_NAME: com.cicd.seeroo_sample
 
     steps:
 

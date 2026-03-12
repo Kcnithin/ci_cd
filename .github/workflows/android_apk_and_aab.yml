@@ -21,7 +21,7 @@ jobs:
     name: Build Signed ${{ inputs.build_format }} on Windows
 
     env:
-      PACKAGE_NAME: "com.example.sample_ci_cd"
+      PACKAGE_NAME: "com.cicd.seeroo_sample"
 
     steps:
       - name: Checkout master
