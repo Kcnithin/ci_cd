@@ -92,7 +92,7 @@ jobs:
       - name: Compute VERSION_CODE
         shell: powershell
         run: |
-          $next = $env:GITHUB_RUN_NUMBER
+          $next = 10 + $env:GITHUB_RUN_NUMBER
           "VERSION_CODE=$next" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       # ---------------------------
