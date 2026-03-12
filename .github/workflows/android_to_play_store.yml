@@ -1,4 +1,4 @@
-name: Android - Build & Upload to Play Store
+name: Android — Build & Upload to Play Store
 
 on:
   workflow_dispatch:
@@ -11,111 +11,147 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: play-internal-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-android:
     runs-on: windows-latest
 
     env:
+      # <-- IMPORTANT: set to your real package name in Play Console
       PACKAGE_NAME: com.cicd.seeroo_sample
 
     steps:
-
+      # ---------------------------
+      # Checkout
+      # ---------------------------
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # ---------------------------
+      # Java (Temurin 17)
+      # ---------------------------
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+          cache: 'gradle'
 
+      # ---------------------------
+      # Flutter SDK (with cache)
+      # ---------------------------
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.38.9"
           channel: stable
-
-      - name: Flutter Clean
-        run: flutter clean
-
-      - name: Flutter Pub Get
-        run: flutter pub get
+          flutter-version: "3.38.9"
+          cache: true
 
       # ---------------------------
-      # Read version from pubspec
+      # Cache Pub (Dart packages)
       # ---------------------------
+      - name: Cache Pub packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PUB_CACHE }}
+          key: pub-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: |
+            pub-${{ runner.os }}-
 
-      - name: Read version from pubspec.yaml
-        shell: powershell
+      # ---------------------------
+      # Flutter prep
+      # ---------------------------
+      - name: Flutter Clean & Pub Get
         run: |
-          $content = Get-Content pubspec.yaml
-          $versionLine = $content | Select-String "version:"
-          $version = $versionLine.ToString().Split(" ")[1]
-          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+          flutter clean
+          flutter pub get
+        env:
+          PUB_CACHE: ${{ env.PUB_CACHE }}
 
       # ---------------------------
-      # Decode keystore
+      # Read versionName from pubspec.yaml (informational)
       # ---------------------------
+      - name: Read version from pubspec.yaml
+        id: read_ver
+        run: |
+          VERSION_LINE=$(grep "^version:" pubspec.yaml | head -n 1 | awk '{print $2}')
+          echo "APP_VERSION=$VERSION_LINE" >> $GITHUB_ENV
+          echo "Detected versionName: $VERSION_LINE"
 
+      # ---------------------------
+      # Compute monotonically increasing versionCode
+      # (Use GitHub run number to ensure it's always higher than any prior upload)
+      # ---------------------------
+      - name: Compute VERSION_CODE
+        run: echo "VERSION_CODE=${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
+
+      # ---------------------------
+      # Decode keystore (THIS one should be Base64)
+      # ---------------------------
       - name: Decode Keystore
-        shell: powershell
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          New-Item -ItemType Directory -Force -Path android/keystores
-          $bytes = [Convert]::FromBase64String($env:KEYSTORE_BASE64)
-          [IO.File]::WriteAllBytes("android/keystores/upload-keystore.jks", $bytes)
+          mkdir -p android/keystores
+          echo "$KEYSTORE_BASE64" | base64 -d > android/keystores/upload-keystore.jks
 
       # ---------------------------
       # Create key.properties
       # ---------------------------
-
       - name: Create key.properties
-        shell: powershell
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          $props = @"
+          cat > android/key.properties <<EOF
           storeFile=../keystores/upload-keystore.jks
-          storePassword=$env:KEYSTORE_PASSWORD
-          keyAlias=$env:KEY_ALIAS
-          keyPassword=$env:KEY_PASSWORD
-          "@
-          $props | Set-Content android/key.properties
+          storePassword=${KEYSTORE_PASSWORD}
+          keyAlias=${KEY_ALIAS}
+          keyPassword=${KEY_PASSWORD}
+          EOF
 
       # ---------------------------
-      # Auto increment versionCode
+      # (Optional) Verify ABI settings are present in Gradle
       # ---------------------------
-
-      - name: Compute VERSION_CODE
-        shell: powershell
+      - name: Show Gradle defaultConfig (sanity)
         run: |
-          $next = $env:GITHUB_RUN_NUMBER
-          "VERSION_CODE=$next" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "Expecting minSdkVersion 24 and abiFilters for armeabi-v7a, arm64-v8a, x86_64"
+          grep -n "minSdkVersion" android/app/build.gradle || true
+          grep -n "abiFilters"   android/app/build.gradle || true
 
       # ---------------------------
       # Build AAB
+      # IMPORTANT: force all target platforms to match your first uploaded build
       # ---------------------------
-
       - name: Build Release AAB
-        shell: powershell
         env:
           DART_DEFINE: ${{ inputs.dart_define }}
+          PUB_CACHE: ${{ env.PUB_CACHE }}
         run: |
-          $extra = ""
-          if ($env:DART_DEFINE -ne "") {
-            $env:DART_DEFINE.Split(",") | ForEach-Object {
-              if ($_ -ne "") { $extra += " --dart-define=$_" }
-            }
-          }
-          flutter build appbundle --release --build-number $env:VERSION_CODE --target-platform android-arm,android-arm64,android-x64 $extra
+          EXTRA=""
+          if [ -n "${DART_DEFINE}" ]; then
+            IFS=',' read -ra KV <<< "${DART_DEFINE}"
+            for item in "${KV[@]}"; do
+              if [ -n "$item" ]; then
+                EXTRA="$EXTRA --dart-define=$item"
+              fi
+            done
+          fi
+
+          echo "Using versionName=${APP_VERSION} and versionCode=${VERSION_CODE}"
+          flutter build appbundle \
+            --release \
+            --build-number ${VERSION_CODE} \
+            --target-platform android-arm,android-arm64,android-x64 \
+            ${EXTRA}
 
       # ---------------------------
-      # Upload artifact
+      # Upload artifact (optional but helpful)
       # ---------------------------
-
       - name: Upload AAB Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -123,10 +159,10 @@ jobs:
           path: build/app/outputs/bundle/release/app-release.aab
 
       # ---------------------------
-      # Upload to Play Store
+      # Upload to Play Store (Internal track)
+      # NOTE: serviceAccountJsonPlainText expects PLAIN JSON (no Base64)
       # ---------------------------
-
-      - name: Upload to Play Console
+      - name: Upload to Play Console (Internal)
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_JSON_KEY }}

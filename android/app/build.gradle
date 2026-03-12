@@ -25,27 +25,23 @@ android {
     }
 
     defaultConfig {
+        applicationId = "com.cicd.seeroo_sample"
 
+        // MUST MATCH your first uploaded internal build
+        minSdkVersion flutter.minSdkVersion
+        targetSdkVersion flutter.targetSdkVersion
 
-// Keep minSdk at or below the first uploaded build (24 here)
-        minSdkVersion 24
+        // Flutter automatically injects versionCode/versionName,
+        // and your CI/CD overrides versionCode via --build-number
+        versionCode flutter.versionCode
+        versionName flutter.versionName
 
-        // IMPORTANT: include all ABIs that were in the previous build
+        // ABI filters must remain EXACTLY like your old AAB:
+        // arm64-v8a, armeabi-v7a, x86_64
         ndk {
             abiFilters "armeabi-v7a", "arm64-v8a", "x86_64"
         }
-
-
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.cicd.seeroo_sample"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
     }
-
 
     signingConfigs {
         release {
@@ -54,7 +50,7 @@ android {
             keyAlias = keystoreProperties['keyAlias']
             keyPassword = keystoreProperties['keyPassword']
 
-            // Fallback to Environment Variables (CI/CD)
+            // Fallbacks for CI/CD
             if (storeFile == null) {
                 def envStorePath = System.getenv("ANDROID_KEYSTORE_PATH")
                 if (envStorePath != null) {
@@ -73,13 +69,12 @@ android {
         }
     }
 
-
     buildTypes {
         release {
             signingConfig = signingConfigs.release
             minifyEnabled true
             shrinkResources true
-       }
+        }
     }
 }
 
