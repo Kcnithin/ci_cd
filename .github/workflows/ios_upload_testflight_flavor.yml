@@ -1,0 +1,315 @@
+name: iOS - Build & Upload to TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      flavor:
+        description: "iOS flavor to build (customer | vendor)"
+        required: true
+        default: "customer"
+      changelog:
+        description: "Optional changelog shown in TestFlight"
+        required: false
+        default: "New build from GitHub Actions"
+      dart_define:
+        description: "Optional --dart-define key=value (comma-separated). Example: API_URL=https://..."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight-${{ github.ref }}-${{ inputs.flavor }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-upload:
+    runs-on: macos-15
+    name: Build IPA & Upload to TestFlight
+
+    env:
+      TEAM_ID: "RMG82888A2" # <-- keep yours
+      # Defaults will be overridden in the flavor mapping step
+      BUNDLE_ID: "com.customer.letsreco"
+      SCHEME: "customer"
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      # --- Select Xcode 26 ---
+      - name: Use Xcode 26
+        shell: bash
+        run: |
+          set -e
+          ls -1 /Applications | sed -n 's/^Xcode_.*\.app$/&/p' || true
+          if [ -d "/Applications/Xcode_26.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_26.app
+          else
+            XCODE_26=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n1 || true)
+            if [ -n "$XCODE_26" ]; then
+              sudo xcode-select -s "$XCODE_26"
+            else
+              echo "❌ Xcode 26 not found on runner. Check runner image notes."
+              exit 1
+            fi
+          fi
+          xcodebuild -version
+
+      - name: Set up Flutter 3.38.9
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.9"
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get
+        shell: bash
+        run: |
+          set -e
+          flutter pub get
+
+      - name: Ensure iOS folder exists
+        shell: bash
+        run: |
+          set -e
+          if [ ! -f ios/Podfile ]; then
+            echo "iOS platform files missing — generating with 'flutter create .'"
+            flutter create .
+          fi
+
+      - name: Ensure export-compliance key in Info.plist (ITSAppUsesNonExemptEncryption=false)
+        shell: bash
+        run: |
+          set -e
+          PLIST="ios/Runner/Info.plist"
+          if [ -f "$PLIST" ]; then
+            /usr/libexec/PlistBuddy -c "Print :ITSAppUsesNonExemptEncryption" "$PLIST" >/dev/null 2>&1 || \
+              /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
+          fi
+
+      - name: Install CocoaPods
+        shell: bash
+        run: |
+          set -e
+          cd ios
+          pod install --repo-update
+
+      # --- Map flavor -> scheme, bundle id, profile secret key ---
+      - name: Resolve flavor mapping
+        id: map
+        shell: bash
+        env:
+          FLAVOR: ${{ inputs.flavor }}
+        run: |
+          set -e
+          FLAVOR_LOWER="$(echo "$FLAVOR" | tr '[:upper:]' '[:lower:]')"
+
+          case "$FLAVOR_LOWER" in
+            customer)
+              SCHEME="customer"
+              BUNDLE_ID="com.customer.letsreco"
+              PROFILE_SECRET="IOS_PROFILE_BASE64_CUSTOMER"
+              ;;
+            vendor)
+              SCHEME="vendor"
+              BUNDLE_ID="com.vendor.letsreco"
+              PROFILE_SECRET="IOS_PROFILE_BASE64_VENDOR"
+              ;;
+            *)
+              echo "❌ Unknown flavor: $FLAVOR_LOWER. Expected customer|vendor"
+              exit 1
+              ;;
+          esac
+
+          echo "SCHEME=$SCHEME"           >> "$GITHUB_ENV"
+          echo "BUNDLE_ID=$BUNDLE_ID"     >> "$GITHUB_ENV"
+          echo "PROFILE_SECRET=$PROFILE_SECRET" >> "$GITHUB_ENV"
+          echo "Resolved flavor=$FLAVOR_LOWER -> scheme=$SCHEME bundle=$BUNDLE_ID profile_secret=$PROFILE_SECRET"
+
+      - name: Create keychain & import signing certificate
+        shell: bash
+        env:
+          CERT_BASE64: ${{ secrets.IOS_CERT_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -e
+          echo "$CERT_BASE64" | base64 --decode > ios_dist.p12
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+
+          security import ios_dist.p12 -k build.keychain -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security list-keychain -d user -s build.keychain
+          security default-keychain -s build.keychain
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+      - name: Install provisioning profile (App Store) & export UUID
+        shell: bash
+        env:
+          PROFILE_BASE64_CUSTOMER: ${{ secrets.IOS_PROFILE_BASE64_CUSTOMER }}
+          PROFILE_BASE64_VENDOR:   ${{ secrets.IOS_PROFILE_BASE64_VENDOR }}
+        run: |
+          set -e
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          PPATH="$HOME/Library/MobileDevice/Provisioning Profiles/build.mobileprovision"
+
+          case "$PROFILE_SECRET" in
+            IOS_PROFILE_BASE64_CUSTOMER) PROFILE_BASE64="$PROFILE_BASE64_CUSTOMER" ;;
+            IOS_PROFILE_BASE64_VENDOR)   PROFILE_BASE64="$PROFILE_BASE64_VENDOR" ;;
+            *) echo "❌ PROFILE_SECRET not mapped properly"; exit 1 ;;
+          esac
+
+          if [ -z "$PROFILE_BASE64" ]; then
+            echo "❌ Missing provisioning profile secret for selected flavor. Set it in repo secrets."
+            exit 1
+          fi
+
+          echo "$PROFILE_BASE64" | base64 --decode > "$PPATH"
+
+          security cms -D -i "$PPATH" > profile.plist
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" profile.plist)
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" profile.plist || true)
+          echo "Using profile: $PROFILE_NAME ($PROFILE_UUID)"
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+
+      - name: Create ExportOptions.plist (manual signing)
+        shell: bash
+        run: |
+          set -e
+          cat > ios/ExportOptions.plist <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+            <dict>
+              <key>method</key><string>app-store</string>
+              <key>teamID</key><string>${TEAM_ID}</string>
+              <key>signingStyle</key><string>manual</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                <key>${BUNDLE_ID}</key><string>${PROFILE_UUID}</string>
+              </dict>
+              <key>destination</key><string>export</string>
+              <key>compileBitcode</key><false/>
+              <key>stripSwiftSymbols</key><true/>
+            </dict>
+          </plist>
+          EOF
+          sed -i '' "s/\${TEAM_ID}/${TEAM_ID}/g" ios/ExportOptions.plist
+          sed -i '' "s/\${BUNDLE_ID}/${BUNDLE_ID}/g" ios/ExportOptions.plist
+          sed -i '' "s/\${PROFILE_UUID}/${PROFILE_UUID}/g" ios/ExportOptions.plist
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Install fastlane (and jq if missing)
+        shell: bash
+        run: |
+          set -e
+          gem install fastlane --no-document
+          command -v jq >/dev/null 2>&1 || brew install jq
+
+      - name: Create API Key JSON (for Fastlane App Store Connect)
+        shell: bash
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          set -e
+          mkdir -p fastlane
+          echo "$ASC_KEY_P8_BASE64" | base64 --decode > private_key.p8
+          jq -n \
+            --arg key_id "$ASC_KEY_ID" \
+            --arg issuer_id "$ASC_ISSUER_ID" \
+            --arg key "$(cat private_key.p8)" \
+            '{key_id:$key_id, issuer_id:$issuer_id, key:$key}' \
+            > fastlane/api_key.json
+          echo "Created fastlane/api_key.json"
+
+      - name: Determine next build number from TestFlight (per bundle)
+        shell: bash
+        run: |
+          set -e
+          LATEST=$(fastlane run latest_testflight_build_number \
+            app_identifier:"${BUNDLE_ID}" \
+            api_key_path:"fastlane/api_key.json" \
+            | ruby -e 'puts STDIN.read.scan(/Result: (\d+)/).flatten.first || 0')
+          if [ -z "$LATEST" ]; then LATEST=0; fi
+          NEXT=$((LATEST + 1))
+          echo "Resolved next build number from ASC for ${BUNDLE_ID}: $NEXT (latest was $LATEST)"
+          echo "IOS_NEXT_BUILD_NUMBER=$NEXT" >> "$GITHUB_ENV"
+
+      - name: Flutter build (no codesign) — flavor
+        shell: bash
+        env:
+          DART_DEFINE: ${{ inputs.dart_define }}
+          FLAVOR: ${{ inputs.flavor }}
+        run: |
+          set -e
+          EXTRA=""
+          if [ -n "$DART_DEFINE" ]; then
+            IFS=','; for kv in $DART_DEFINE; do
+              [ -n "$kv" ] && EXTRA="$EXTRA --dart-define=$kv"
+            done; unset IFS
+          fi
+          flutter build ios --release --no-codesign \
+            --flavor "$FLAVOR" \
+            --build-number "$IOS_NEXT_BUILD_NUMBER" \
+            $EXTRA
+
+      - name: Archive (unsigned) — flavor scheme
+        shell: bash
+        run: |
+          set -e
+          xcodebuild -workspace ios/Runner.xcworkspace \
+            -scheme "${SCHEME}" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/ios/Runner.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            archive
+
+      - name: Export IPA
+        shell: bash
+        run: |
+          set -e
+          xcodebuild -exportArchive \
+            -archivePath build/ios/Runner.xcarchive \
+            -exportOptionsPlist ios/ExportOptions.plist \
+            -exportPath build/ios/ipa
+          echo "Exported files:"
+          ls -la build/ios/ipa
+
+      - name: Upload IPA artifact (backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-${{ inputs.flavor }}
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: error
+
+      - name: Upload to TestFlight (pilot)
+        shell: bash
+        env:
+          CHANGELOG: ${{ inputs.changelog }}
+        run: |
+          set -e
+          IPA_PATH="$(ls -t build/ios/ipa/*.ipa | head -n 1)"
+          if [ ! -f "$IPA_PATH" ]; then
+            echo "❌ IPA not found in build/ios/ipa. Contents:"; ls -la build/ios/ipa || true
+            exit 1
+          fi
+          echo "Uploading: $IPA_PATH"
+          fastlane pilot upload \
+            --ipa "$IPA_PATH" \
+            --skip_waiting_for_build_processing true \
+            --changelog "$CHANGELOG" \
+            --api_key_path fastlane/api_key.json
