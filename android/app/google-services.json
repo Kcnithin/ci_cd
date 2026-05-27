@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "641192664826",
+    "project_id": "samplepush-f31a1",
+    "storage_bucket": "samplepush-f31a1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:641192664826:android:9f630ca2b82a4cdad63343",
+        "android_client_info": {
+          "package_name": "com.cicd.seeroo_sample"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCYtHzbxcLQVpxPbMf6bK-cloIL1B1uVvg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
