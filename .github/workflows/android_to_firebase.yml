@@ -1,5 +1,5 @@
 name: Firebase App Distribution
- 
+
 on:
   workflow_dispatch:
     inputs:
@@ -28,47 +28,48 @@ on:
       tester_emails:
         description: "Individual tester emails (comma-separated). Optional."
         required: false
- 
+
 jobs:
   firebase-distribute:
     runs-on: ubuntu-latest
-steps:
+
+    steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
- 
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
- 
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
- 
+
       - name: Accept Android Licenses
         run: yes | sdkmanager --licenses
- 
+
       - name: Install SDK components
         run: |
           sdkmanager --update
           sdkmanager "platform-tools"
           sdkmanager "platforms;android-35"
           sdkmanager "build-tools;35.0.0"
- 
+
       - name: Create local.properties
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
- 
+
       - name: Make gradlew executable
         run: chmod +x ./gradlew
- 
+
       - name: Decode Keystore
         if: ${{ github.event.inputs.build_type == 'release' }}
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/keyGoogleStore.jks
- 
+
       - name: Clean
         run: ./gradlew clean --stacktrace
- 
+
       - name: Build Vado APK
         run: |
           BUILD_TYPE="${{ github.event.inputs.build_type }}"
@@ -88,19 +89,19 @@ steps:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
- 
+
       - name: Verify APK exists
         run: |
           BUILD_TYPE="${{ github.event.inputs.build_type }}"
           ls -R app/build/outputs/apk/vado/$BUILD_TYPE/
- 
+
       - name: Verify Firebase App ID is set
         run: |
           if [ -z "${{ secrets.FIREBASE_APP_ID }}" ]; then
             echo "ERROR: FIREBASE_APP_ID secret is not set!"
             exit 1
           fi
- 
+
       - name: Upload to Firebase App Distribution
         uses: wzieba/Firebase-Distribution-Github-Action@v1
         with:
