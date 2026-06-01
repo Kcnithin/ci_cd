@@ -89,6 +89,5 @@ jobs:
           serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           groups: ${{ github.event.inputs.tester_groups }}
           testers: ${{ github.event.inputs.tester_emails }}
-          file: |
-            build/app/outputs/flutter-apk/app-${{ github.event.inputs.build_type }}.apk
+          file: build/app/outputs/flutter-apk/app-${{ github.event.inputs.build_type }}.apk
           releaseNotes: "[${{ github.event.inputs.build_type }}] ${{ github.event.inputs.release_notes }}"
