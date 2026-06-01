@@ -12,21 +12,21 @@ on:
           - debug
           - release
       version_code:
-        description: "Version Code (optional, e.g. 1)"
-        required: false
+        description: "Version Code"
+        required: true
       version_name:
-        description: "Version Name (optional, e.g. 1.1.0)"
-        required: false
+        description: "Version Name"
+        required: true
       release_notes:
-        description: "Release notes for testers"
+        description: "Release notes"
         required: false
         default: "Build for QA testing"
       tester_groups:
-        description: "Tester Groups (comma-separated, e.g. TapnPay,QA-Team)"
+        description: "Tester Groups"
         required: false
-        default: "TapnPay"
+        default: "sample_ci_cd"
       tester_emails:
-        description: "Individual tester emails (comma-separated). Optional."
+        description: "Tester Emails"
         required: false
 
 jobs:
@@ -34,74 +34,54 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ✅ Checkout
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # ✅ Setup Java
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      # ✅ Setup Flutter
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.x'
 
-      - name: Accept Android Licenses
-        run: yes | sdkmanager --licenses
+      # ✅ Install Dependencies
+      - name: Flutter Pub Get
+        run: flutter pub get
 
-      - name: Install SDK components
-        run: |
-          sdkmanager --update
-          sdkmanager "platform-tools"
-          sdkmanager "platforms;android-35"
-          sdkmanager "build-tools;35.0.0"
-
-      - name: Create local.properties
-        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
-
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew
-
+      # ✅ Decode keystore (only for release)
       - name: Decode Keystore
         if: ${{ github.event.inputs.build_type == 'release' }}
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/keyGoogleStore.jks
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/keystores/cicd-keystore.jks
 
-      - name: Clean
-        run: ./gradlew clean --stacktrace
-
-      - name: Build Vado APK
+      # ✅ Build APK (Flutter way ✅)
+      - name: Build APK
         run: |
-          BUILD_TYPE="${{ github.event.inputs.build_type }}"
+          BUILD_TYPE=${{ github.event.inputs.build_type }}
+
           if [ "$BUILD_TYPE" == "release" ]; then
-            CMD="./gradlew assembleVadoRelease --stacktrace"
+            flutter build apk --release
           else
-            CMD="./gradlew assembleVadoDebug --stacktrace"
+            flutter build apk --debug
           fi
-          if [ -n "${{ github.event.inputs.version_code }}" ]; then
-            CMD="$CMD -PciVersionCode=${{ github.event.inputs.version_code }}"
-          fi
-          if [ -n "${{ github.event.inputs.version_name }}" ]; then
-            CMD="$CMD -PciVersionName=${{ github.event.inputs.version_name }}"
-          fi
-          eval $CMD
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
-      - name: Verify APK exists
+      # ✅ Verify APK
+      - name: Verify APK
         run: |
-          BUILD_TYPE="${{ github.event.inputs.build_type }}"
-          ls -R app/build/outputs/apk/vado/$BUILD_TYPE/
+          ls -R build/app/outputs/flutter-apk/
 
-      - name: Verify Firebase App ID is set
-        run: |
-          if [ -z "${{ secrets.FIREBASE_APP_ID }}" ]; then
-            echo "ERROR: FIREBASE_APP_ID secret is not set!"
-            exit 1
-          fi
-
+      # ✅ Upload to Firebase
       - name: Upload to Firebase App Distribution
         uses: wzieba/Firebase-Distribution-Github-Action@v1
         with:
@@ -109,5 +89,6 @@ jobs:
           serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           groups: ${{ github.event.inputs.tester_groups }}
           testers: ${{ github.event.inputs.tester_emails }}
-          file: app/build/outputs/apk/vado/${{ github.event.inputs.build_type }}/app-vado-${{ github.event.inputs.build_type }}.apk
+          file: |
+            build/app/outputs/flutter-apk/app-${{ github.event.inputs.build_type }}.apk
           releaseNotes: "[${{ github.event.inputs.build_type }}] ${{ github.event.inputs.release_notes }}"
