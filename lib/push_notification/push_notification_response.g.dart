@@ -37,6 +37,7 @@ _PushNotificationData _$PushNotificationDataFromJson(
   sourceModule: json['sourceModule'] as String?,
   sourceRecordId: json['sourceRecordId'] as String?,
   screenKey: json['screenKey'] as String?,
+  link: json['link'] as String?,
 );
 
 Map<String, dynamic> _$PushNotificationDataToJson(
@@ -46,4 +47,5 @@ Map<String, dynamic> _$PushNotificationDataToJson(
   'sourceModule': ?instance.sourceModule,
   'sourceRecordId': ?instance.sourceRecordId,
   'screenKey': ?instance.screenKey,
+  'link': ?instance.link,
 };

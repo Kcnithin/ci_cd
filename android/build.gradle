@@ -13,7 +13,7 @@ subprojects {
 subprojects {
     afterEvaluate { project ->
         if (project.hasProperty("android")) {
-            project.android.compileSdkVersion = 35
+            project.android.compileSdkVersion = 36
             project.android {
                 lintOptions {
                     abortOnError false

@@ -313,7 +313,7 @@ $PushNotificationDataCopyWith<$Res>? get data {
 /// @nodoc
 mixin _$PushNotificationData {
 
- String? get eventCode; String? get sourceModule; String? get sourceRecordId; String? get screenKey;
+ String? get eventCode; String? get sourceModule; String? get sourceRecordId; String? get screenKey; String? get link;
 /// Create a copy of PushNotificationData
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -326,16 +326,16 @@ $PushNotificationDataCopyWith<PushNotificationData> get copyWith => _$PushNotifi
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is PushNotificationData&&(identical(other.eventCode, eventCode) || other.eventCode == eventCode)&&(identical(other.sourceModule, sourceModule) || other.sourceModule == sourceModule)&&(identical(other.sourceRecordId, sourceRecordId) || other.sourceRecordId == sourceRecordId)&&(identical(other.screenKey, screenKey) || other.screenKey == screenKey));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is PushNotificationData&&(identical(other.eventCode, eventCode) || other.eventCode == eventCode)&&(identical(other.sourceModule, sourceModule) || other.sourceModule == sourceModule)&&(identical(other.sourceRecordId, sourceRecordId) || other.sourceRecordId == sourceRecordId)&&(identical(other.screenKey, screenKey) || other.screenKey == screenKey)&&(identical(other.link, link) || other.link == link));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,eventCode,sourceModule,sourceRecordId,screenKey);
+int get hashCode => Object.hash(runtimeType,eventCode,sourceModule,sourceRecordId,screenKey,link);
 
 @override
 String toString() {
-  return 'PushNotificationData(eventCode: $eventCode, sourceModule: $sourceModule, sourceRecordId: $sourceRecordId, screenKey: $screenKey)';
+  return 'PushNotificationData(eventCode: $eventCode, sourceModule: $sourceModule, sourceRecordId: $sourceRecordId, screenKey: $screenKey, link: $link)';
 }
 
 
@@ -346,7 +346,7 @@ abstract mixin class $PushNotificationDataCopyWith<$Res>  {
   factory $PushNotificationDataCopyWith(PushNotificationData value, $Res Function(PushNotificationData) _then) = _$PushNotificationDataCopyWithImpl;
 @useResult
 $Res call({
- String? eventCode, String? sourceModule, String? sourceRecordId, String? screenKey
+ String? eventCode, String? sourceModule, String? sourceRecordId, String? screenKey, String? link
 });
 
 
@@ -363,12 +363,13 @@ class _$PushNotificationDataCopyWithImpl<$Res>
 
 /// Create a copy of PushNotificationData
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? eventCode = freezed,Object? sourceModule = freezed,Object? sourceRecordId = freezed,Object? screenKey = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? eventCode = freezed,Object? sourceModule = freezed,Object? sourceRecordId = freezed,Object? screenKey = freezed,Object? link = freezed,}) {
   return _then(_self.copyWith(
 eventCode: freezed == eventCode ? _self.eventCode : eventCode // ignore: cast_nullable_to_non_nullable
 as String?,sourceModule: freezed == sourceModule ? _self.sourceModule : sourceModule // ignore: cast_nullable_to_non_nullable
 as String?,sourceRecordId: freezed == sourceRecordId ? _self.sourceRecordId : sourceRecordId // ignore: cast_nullable_to_non_nullable
 as String?,screenKey: freezed == screenKey ? _self.screenKey : screenKey // ignore: cast_nullable_to_non_nullable
+as String?,link: freezed == link ? _self.link : link // ignore: cast_nullable_to_non_nullable
 as String?,
   ));
 }
@@ -451,10 +452,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String? eventCode,  String? sourceModule,  String? sourceRecordId,  String? screenKey)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String? eventCode,  String? sourceModule,  String? sourceRecordId,  String? screenKey,  String? link)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _PushNotificationData() when $default != null:
-return $default(_that.eventCode,_that.sourceModule,_that.sourceRecordId,_that.screenKey);case _:
+return $default(_that.eventCode,_that.sourceModule,_that.sourceRecordId,_that.screenKey,_that.link);case _:
   return orElse();
 
 }
@@ -472,10 +473,10 @@ return $default(_that.eventCode,_that.sourceModule,_that.sourceRecordId,_that.sc
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String? eventCode,  String? sourceModule,  String? sourceRecordId,  String? screenKey)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String? eventCode,  String? sourceModule,  String? sourceRecordId,  String? screenKey,  String? link)  $default,) {final _that = this;
 switch (_that) {
 case _PushNotificationData():
-return $default(_that.eventCode,_that.sourceModule,_that.sourceRecordId,_that.screenKey);}
+return $default(_that.eventCode,_that.sourceModule,_that.sourceRecordId,_that.screenKey,_that.link);}
 }
 /// A variant of `when` that fallback to returning `null`
 ///
@@ -489,10 +490,10 @@ return $default(_that.eventCode,_that.sourceModule,_that.sourceRecordId,_that.sc
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String? eventCode,  String? sourceModule,  String? sourceRecordId,  String? screenKey)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String? eventCode,  String? sourceModule,  String? sourceRecordId,  String? screenKey,  String? link)?  $default,) {final _that = this;
 switch (_that) {
 case _PushNotificationData() when $default != null:
-return $default(_that.eventCode,_that.sourceModule,_that.sourceRecordId,_that.screenKey);case _:
+return $default(_that.eventCode,_that.sourceModule,_that.sourceRecordId,_that.screenKey,_that.link);case _:
   return null;
 
 }
@@ -504,13 +505,14 @@ return $default(_that.eventCode,_that.sourceModule,_that.sourceRecordId,_that.sc
 @JsonSerializable()
 
 class _PushNotificationData implements PushNotificationData {
-  const _PushNotificationData({this.eventCode, this.sourceModule, this.sourceRecordId, this.screenKey});
+  const _PushNotificationData({this.eventCode, this.sourceModule, this.sourceRecordId, this.screenKey, this.link});
   factory _PushNotificationData.fromJson(Map<String, dynamic> json) => _$PushNotificationDataFromJson(json);
 
 @override final  String? eventCode;
 @override final  String? sourceModule;
 @override final  String? sourceRecordId;
 @override final  String? screenKey;
+@override final  String? link;
 
 /// Create a copy of PushNotificationData
 /// with the given fields replaced by the non-null parameter values.
@@ -525,16 +527,16 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _PushNotificationData&&(identical(other.eventCode, eventCode) || other.eventCode == eventCode)&&(identical(other.sourceModule, sourceModule) || other.sourceModule == sourceModule)&&(identical(other.sourceRecordId, sourceRecordId) || other.sourceRecordId == sourceRecordId)&&(identical(other.screenKey, screenKey) || other.screenKey == screenKey));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _PushNotificationData&&(identical(other.eventCode, eventCode) || other.eventCode == eventCode)&&(identical(other.sourceModule, sourceModule) || other.sourceModule == sourceModule)&&(identical(other.sourceRecordId, sourceRecordId) || other.sourceRecordId == sourceRecordId)&&(identical(other.screenKey, screenKey) || other.screenKey == screenKey)&&(identical(other.link, link) || other.link == link));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,eventCode,sourceModule,sourceRecordId,screenKey);
+int get hashCode => Object.hash(runtimeType,eventCode,sourceModule,sourceRecordId,screenKey,link);
 
 @override
 String toString() {
-  return 'PushNotificationData(eventCode: $eventCode, sourceModule: $sourceModule, sourceRecordId: $sourceRecordId, screenKey: $screenKey)';
+  return 'PushNotificationData(eventCode: $eventCode, sourceModule: $sourceModule, sourceRecordId: $sourceRecordId, screenKey: $screenKey, link: $link)';
 }
 
 
@@ -545,7 +547,7 @@ abstract mixin class _$PushNotificationDataCopyWith<$Res> implements $PushNotifi
   factory _$PushNotificationDataCopyWith(_PushNotificationData value, $Res Function(_PushNotificationData) _then) = __$PushNotificationDataCopyWithImpl;
 @override @useResult
 $Res call({
- String? eventCode, String? sourceModule, String? sourceRecordId, String? screenKey
+ String? eventCode, String? sourceModule, String? sourceRecordId, String? screenKey, String? link
 });
 
 
@@ -562,12 +564,13 @@ class __$PushNotificationDataCopyWithImpl<$Res>
 
 /// Create a copy of PushNotificationData
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? eventCode = freezed,Object? sourceModule = freezed,Object? sourceRecordId = freezed,Object? screenKey = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? eventCode = freezed,Object? sourceModule = freezed,Object? sourceRecordId = freezed,Object? screenKey = freezed,Object? link = freezed,}) {
   return _then(_PushNotificationData(
 eventCode: freezed == eventCode ? _self.eventCode : eventCode // ignore: cast_nullable_to_non_nullable
 as String?,sourceModule: freezed == sourceModule ? _self.sourceModule : sourceModule // ignore: cast_nullable_to_non_nullable
 as String?,sourceRecordId: freezed == sourceRecordId ? _self.sourceRecordId : sourceRecordId // ignore: cast_nullable_to_non_nullable
 as String?,screenKey: freezed == screenKey ? _self.screenKey : screenKey // ignore: cast_nullable_to_non_nullable
+as String?,link: freezed == link ? _self.link : link // ignore: cast_nullable_to_non_nullable
 as String?,
   ));
 }

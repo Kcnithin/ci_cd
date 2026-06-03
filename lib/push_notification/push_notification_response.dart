@@ -23,6 +23,7 @@ sealed class PushNotificationData with _$PushNotificationData {
     String? sourceModule,
     String? sourceRecordId,
     String? screenKey,
+    String? link,
   }) = _PushNotificationData;
 
   factory PushNotificationData.fromJson(Map<String, dynamic> json) =>
