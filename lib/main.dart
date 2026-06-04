@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'fcm_service.dart';
 import 'firebase_options.dart';
 import 'notification_service.dart';
+import 'badge_utility.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -21,6 +22,7 @@ Future<void> main() async {
   // Initialize FCM after SharedPrefUtil so the token can be persisted
   await FCMService().initialize();
   await NotificationService().initialize();
+  BadgeUtility.resetBadgeCount();
   runApp(const MyApp());
 }
 
@@ -49,15 +51,29 @@ class MyHomePage extends StatefulWidget {
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
+class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   int _counter = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FCMService().checkInitialMessage();
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      BadgeUtility.resetBadgeCount();
+    }
   }
 
   void _incrementCounter() {

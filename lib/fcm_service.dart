@@ -6,6 +6,7 @@ import 'package:sample_ci_cd/push_notification/push_notification_response.dart';
 import 'package:sample_ci_cd/push_notification_navigation_utility.dart';
 
 import 'notification_service.dart';
+import 'badge_utility.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -15,6 +16,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     name: 'FCM-Background',
   );
   log('Background message data: ${message.data}', name: 'FCM-Background');
+  await BadgeUtility.incrementBadgeCount();
 }
 
 class FCMService {
@@ -93,6 +95,7 @@ class FCMService {
       log('Foreground message received: ${message.messageId}', name: 'FCM');
 
       if (message.notification != null) {
+        BadgeUtility.incrementBadgeCount();
         NotificationService().showNotification(
           title: message.notification!.title ?? 'CAFM',
           body:
@@ -140,6 +143,7 @@ class FCMService {
 
   void _handleNotificationTap(RemoteMessage message) {
     log('Notification tap payload: ${message.data}', name: 'FCM');
+    BadgeUtility.resetBadgeCount();
 
     final notification = PushNotificationResponse(
       title: message.notification?.title ?? '',
